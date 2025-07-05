@@ -1,0 +1,13 @@
+# Clés Firebase
+firebase_config.json
+firebase_service_account.json
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Éventuelles variables d'environnement
+.env
+
+# Fichiers de log
+*.log
