@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Classement</title>
+</head>
+<body>
+  <h1>Classement des membres</h1>
+  <ol>
+    {% for user in classement %}
+      <li>{{ user.username }} — {{ user.points }} pts</li>
+    {% endfor %}
+  </ol>
+  <p><a href="/">Retour accueil</a></p>
+</body>
+</html>

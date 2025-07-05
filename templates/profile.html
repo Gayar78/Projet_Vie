@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <title>Mon profil</title>
+</head>
+<body>
+  <h1>Profil utilisateur</h1>
+  <p><strong>Email :</strong> {{ email }}</p>
+
+  <form method="POST" action="/update_profile">
+    <label>Nom d'utilisateur :</label>
+    <input type="text" name="username" value="{{ username }}"><br>
+
+    <label>Sport préféré :</label>
+    <input type="text" name="sport" value="{{ sport }}"><br>
+
+    <label>Instagram :</label>
+    <input type="text" name="instagram" value="{{ instagram }}"><br>
+
+    <label>Objectif :</label>
+    <input type="text" name="objectif" value="{{ objectif }}"><br>
+
+    <button type="submit">Mettre à jour</button>
+  </form>
+
+  <p><a href="/">Retour accueil</a></p>
+</body>
+</html>
