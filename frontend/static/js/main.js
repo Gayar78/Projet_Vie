@@ -1,9 +1,94 @@
 /******************************************************************
  *  SPA ProjetVie  —  main.js
  *  Tailwind CSS uniquement  ·  Proxy “/api” -> FastAPI backend
- ******************************************************************/
+ *****************************************************************
 
-/* ======== Helper API (proxy via /api) ========================= */
+/* ======== Background animé (Vanta.NET) ======================= 
+let vanta, animId
+
+/* ---------- palette cyclique bleu ↔ rouge ------------------- 
+const BLUE = 0x1565ff
+const RED  = 0xff2640
+const lerp    = (a,b,t)=>Math.round(a+(b-a)*t)
+const lerpHex = (c1,c2,t)=>
+  ((lerp((c1>>16)&255,(c2>>16)&255,t)<<16)|
+   (lerp((c1>>8)&255 ,(c2>>8)&255 ,t)<< 8)|
+    lerp( c1    &255 , c2    &255 ,t))
+
+/* ---------- charge script externe --------------------------- 
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    if(document.querySelector(`script[src="${src}"]`)) return res()
+    const s=Object.assign(document.createElement('script'),{src})
+    s.onload=res; s.onerror=()=>rej(new Error(`⨂ ${src}`))
+    document.head.appendChild(s)
+  })
+}
+
+/* ---------- init / re-init du fond -------------------------- 
+async function initBackground(){
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js')
+  await loadScript('https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js')
+
+  /* conteneur plein-écran ------------------------------------ 
+  let bg=document.getElementById('background')
+  if(!bg){
+    bg=Object.assign(document.createElement('div'),{id:'background'})
+    document.body.prepend(bg)
+  }
+
+  /* reset anciennes instances / boucles ---------------------- 
+  vanta?.destroy?.()
+  cancelAnimationFrame(animId)
+
+  /* nouvelle instance NET + déformation sinusoïdale ---------- 
+  /* nouvelle instance NET + vague -------------------------------- 
+vanta = VANTA.NET({
+  el: bg,
+  color: BLUE,
+  points: 12,
+  maxDistance: 30,
+  spacing: 18,
+  mouseControls: false,
+  gyroControls: false,
+
+  /* --- 1. mémorise la géométrie de base ---------------------- 
+  onInit () {
+    const g = this.geometry
+    if (g.vertices) {                         // ancienne THREE.Geometry
+      this.legacy = true
+      this.baseVerts = g.vertices.map(v => v.clone())
+    } else {                                  // BufferGeometry (Three ≥ r125)
+      this.legacy = false
+      this.posAttr  = g.attributes.position   // Float32BufferAttribute
+      this.basePos  = this.posAttr.array.slice() // copie des positions
+    }
+  },
+})
+
+  /* --- boucle couleur (≈8 s aller-retour) ------------------- 
+  function animateColor(time){
+    const t = (Math.sin(time/4000)+1)/2
+    vanta.setOptions({color:lerpHex(BLUE,RED,t)})
+    animId=requestAnimationFrame(animateColor)
+  }
+  animId=requestAnimationFrame(animateColor)
+}
+
+/* ---------- style (une seule fois) -------------------------- 
+if(!document.getElementById('bg-style')){
+  const s=Object.assign(document.createElement('style'),{id:'bg-style'})
+  s.textContent='#background{position:fixed;inset:0;z-index:-1;pointer-events:none}'
+  document.head.appendChild(s)
+}
+
+/* ---------- lance au démarrage ------------------------------ 
+initBackground()
+/* ============================================================ 
+
+/* ======== Helper API (proxy via /api) ========================= 
 async function api (path, body = null, method = 'POST') {
   const r = await fetch('/api' + path, {
     method,
@@ -17,7 +102,7 @@ async function api (path, body = null, method = 'POST') {
   return r.json()
 }
 
-/* ======== Nav dynamique ====================================== */
+/* ======== Nav dynamique ====================================== 
 function updateNav () {
   const nav = document.getElementById('nav-right')
   if (!nav) return
@@ -30,7 +115,7 @@ function updateNav () {
           class="px-4 py-1 rounded-full bg-pink-500 hover:bg-pink-600">Sign Up</a>`
 }
 
-/* ======== Composant sidebar profile ========================== */
+/* ======== Composant sidebar profile ========================== 
 const sideBar = (active) => `
 <nav class="w-56 flex-shrink-0 bg-white/5 rounded-2xl border border-white/10
             backdrop-blur-md p-6 space-y-6">
@@ -61,7 +146,7 @@ const sideBar = (active) => `
   </ul>
 </nav>`
 
-/* ======== Templates pages profile ============================ */
+/* ======== Templates pages profile ============================ 
 const profilePages = {
   dashboard: u => `
     <h2 class="text-2xl font-bold mb-6">Welcome,
@@ -193,23 +278,93 @@ const profilePages = {
     </div>`
 }
 
-/* ======== Pages non-profil (home/login/register/leaderboard) == */
+/* ======== Pages non-profil (home/login/register/leaderboard) == 
 const homePage = () => `
-  <section class="min-h-[calc(100vh-160px)] flex items-center justify-center px-6">
-    <div class="text-center">
-      <h1 class="text-5xl md:text-6xl font-extrabold mb-6 leading-tight">
-        Build&nbsp;Your <span class="text-pink-400">Strength</span><br>
-        Share&nbsp;Your&nbsp;Journey
-      </h1>
-      <p class="text-gray-300 mb-10 max-w-xl mx-auto">
-        Track workouts, climb the leaderboard, inspire others.
-      </p>
-      <a href="/register" data-link
-         class="px-8 py-3 rounded-full bg-gradient-to-r
-                from-pink-500 to-purple-600 hover:opacity-90 font-semibold">
-        Get Started
-      </a>
+  <!-- HERO -------------------------------------------------- -->
+  <section class="relative flex flex-col items-center justify-center text-center px-6 pt-28 pb-32 overflow-hidden min-h-[calc(100vh-160px)]">
+    <h1 class="text-5xl md:text-6xl font-extrabold leading-tight mb-6">
+      Défie le monde.<br>
+      Deviens <span class="bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">Grand&nbsp;Master.</span>
+    </h1>
+    <p class="max-w-2xl mx-auto text-gray-300 mb-10">
+      La première plateforme communautaire où chaque performance compte : partage tes exploits, grimpe au classement et gagne des récompenses réelles tous les 6 mois.
+    </p>
+    <a href="/register" data-link class="px-8 py-3 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 font-semibold text-white shadow-lg shadow-pink-500/30">
+      Créer mon compte
+    </a>
+    <span class="absolute top-5 right-6 text-sm opacity-70 select-none">🇫🇷 | 🇬🇧</span>
+  </section>
+
+  <!-- LEADERBOARD PREVIEW ----------------------------------- -->
+  <section class="py-24 px-6 bg-[#0d0818] border-t border-white/10">
+    <div class="max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+      <div>
+        <h2 class="text-3xl font-bold mb-4">Classements en temps réel</h2>
+        <p class="text-gray-400 mb-6">Valide ta performance en vidéo, gagne des points et vois instantanément ta position mondiale dans ta discipline.<br>Des niveaux de <strong>Fer</strong> à <strong>Grand&nbsp;Master</strong>.</p>
+        <a href="/leaderboard" data-link class="inline-flex items-center gap-2 text-pink-400 font-semibold hover:underline">
+          Voir le leaderboard&nbsp;→
+        </a>
+      </div>
+      <div class="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md">
+        <p class="text-center text-gray-400">Extrait en direct</p>
+        <div id="home-leaderboard" class="mt-4 text-sm text-gray-300"></div>
+      </div>
     </div>
+  </section>
+
+  <!-- MARKETPLACE ------------------------------------------- -->
+  <section class="py-24 px-6 bg-[#0b0614]">
+    <div class="max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+      <div class="order-2 lg:order-1">
+        <h2 class="text-3xl font-bold mb-4">Marketplace de programmes</h2>
+        <p class="text-gray-400 mb-6">Achète ou vends des routines premium triées sur le volet. Les coachs fixent leur prix&nbsp;; la communauté évalue.&nbsp;💸</p>
+        <a href="/programs" data-link class="inline-flex items-center gap-2 text-cyan-400 font-semibold hover:underline">
+          Découvrir les programmes&nbsp;→
+        </a>
+      </div>
+      <div class="order-1 lg:order-2 bg-gradient-to-br from-purple-600/30 to-pink-500/10 p-8 rounded-2xl border border-white/10">
+        <p class="text-center text-gray-300">Mock-up cartes programme (à venir)</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- REWARDS / SEASONS ------------------------------------- -->
+  <section class="py-24 px-6 bg-[#0d0818] border-t border-white/10">
+    <div class="max-w-5xl mx-auto text-center">
+      <h2 class="text-3xl font-bold mb-4">Récompenses semestrielles</h2>
+      <p class="text-gray-400 max-w-3xl mx-auto">Tous les 6 mois, les athlètes les plus actifs et les mieux classés reçoivent des récompenses exclusives : équipements, crédits boutique, mise en avant sur nos réseaux.<br><span class="italic">Saison 1 en cours !</span></p>
+    </div>
+  </section>
+
+  <!-- FAQ ---------------------------------------------------- -->
+  <section class="py-24 px-6 bg-[#0b0614]">
+    <div class="max-w-4xl mx-auto">
+      <h2 class="text-3xl font-bold text-center mb-12">Foire aux questions</h2>
+      <div class="space-y-6 text-gray-300">
+        <details class="border border-white/10 rounded-lg p-4">
+          <summary class="font-semibold cursor-pointer">Comment mes performances sont-elles validées&nbsp;?</summary>
+          <p class="mt-2">Tu uploades une vidéo de 2‑3 minutes. Un admin vérifie la forme, l’exécution et l’authenticité avant d’attribuer tes points.</p>
+        </details>
+        <details class="border border-white/10 rounded-lg p-4">
+          <summary class="font-semibold cursor-pointer">Puis‑je vendre mon propre programme&nbsp;?</summary>
+          <p class="mt-2">Oui&nbsp;! Une fois ton profil coach approuvé, tu peux publier et monétiser tes routines. Nous prenons une petite commission pour la plateforme.</p>
+        </details>
+        <details class="border border-white/10 rounded-lg p-4">
+          <summary class="font-semibold cursor-pointer">Que deviennent mes points après chaque saison&nbsp;?</summary>
+          <p class="mt-2">Les compteurs publics repartent à zéro, mais ton historique reste consultable dans ton espace personnel.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA FINAL --------------------------------------------- -->
+  <section class="py-24 px-6 bg-[#0d0818] border-t border-white/10 text-center">
+    <h2 class="text-4xl font-extrabold mb-6">
+      Prêt à marquer l’histoire&nbsp;?
+    </h2>
+    <a href="/register" data-link class="px-10 py-4 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 font-semibold shadow-lg shadow-purple-600/30">
+      Je rejoins la compétition
+    </a>
   </section>`
 
 const loginPage = () => `
@@ -292,7 +447,7 @@ const leaderboardPage = () => `
     </div>
   </section>`
 
-/* ======== Router map ========================================= */
+/* ======== Router map ========================================= 
 const routes = {
   '/':              homePage,
   '/login':         loginPage,
@@ -300,7 +455,7 @@ const routes = {
   '/leaderboard':   leaderboardPage,
 }
 
-/* ======== Render ============================================ */
+/* ======== Render ============================================ 
 const app = document.getElementById('app')
 
 async function render (path) {
@@ -323,7 +478,7 @@ async function render (path) {
     return
   }
 
-  /* -------- pages simples ---------------------------------------- */
+  /* -------- pages simples ---------------------------------------- 
   app.innerHTML = (routes[path] || homePage)()
   updateNav()
   bindForms()
@@ -331,10 +486,10 @@ async function render (path) {
 }
 
 
-/* ======== Forms & events ==================================== */
+/* ======== Forms & events ==================================== 
 
 function bindForms () {
-  /* ---------- LOGIN ----------------------------------------------- */
+  /* ---------- LOGIN ----------------------------------------------- 
   const login = document.getElementById('login-form')
   if (login) login.addEventListener('submit', async e => {
     e.preventDefault()
@@ -347,7 +502,7 @@ function bindForms () {
     } catch { alert('Login failed') }
   })
 
-  /* ---------- REGISTER -------------------------------------------- */
+  /* ---------- REGISTER -------------------------------------------- 
   const reg = document.getElementById('register-form')
   if (reg) reg.addEventListener('submit', async e => {
     e.preventDefault()
@@ -361,7 +516,7 @@ function bindForms () {
     } catch { alert('Register failed') }
   })
 
-  /* ---------- PROFILE save (sport, goal, etc.) -------------------- */
+  /* ---------- PROFILE save (sport, goal, etc.) -------------------- 
   const profile = document.getElementById('profile-form')
   if (profile) profile.addEventListener('submit', async e => {
     e.preventDefault()
@@ -372,7 +527,7 @@ function bindForms () {
     } catch { alert('Update failed') }
   })
 
-  /* ---------- Save Display-Name bouton ---------------------------- */
+  /* ---------- Save Display-Name bouton ---------------------------- 
   const saveName = document.getElementById('save-username')
   if (saveName) saveName.addEventListener('click', async () => {
     const nameInput = document.querySelector('[name="username"]')
@@ -385,24 +540,24 @@ function bindForms () {
     } catch { alert('Update failed') }
   })
 
-  /* ---------- Boutons “Connect” réseaux sociaux ------------------- */
+  /* ---------- Boutons “Connect” réseaux sociaux ------------------- 
   document.querySelectorAll('[data-connect]').forEach(btn => {
     btn.addEventListener('click', async e => {
       const provider = e.currentTarget.dataset.connect        // instagram / meta / youtube
       alert(`TODO: OAuth redirect for ${provider}`)
 
       /* Exemple provisoire : on marque comme connecté côté BD
-         (à enlever lorsque l’OAuth réel sera branché) */
+         (à enlever lorsque l’OAuth réel sera branché) 
       try {
         await api('/profile', { [provider]: true }, 'POST')
         loadProfile()
-      } catch {/* silencieux */}
+      } catch {/* silencieux }
     })
   })
 }
 
 
-/* ======== Loaders =========================================== */
+/* ======== Loaders =========================================== 
 function fetchLeaderboard () {
   api('/leaderboard', null, 'GET').then(list => {
     const tbody = document.getElementById('leaderboard-body')
@@ -449,7 +604,7 @@ async function loadProfile () {
     const rankEl = document.getElementById('global-rank')
     if (rankEl) rankEl.textContent = pos === -1 ? '-' : '#' + (pos + 1)
 
-    /* … le reste (linked accounts) … */
+    /* … le reste (linked accounts) … 
   } catch (err) {
     console.error("loadProfile error", err)
   }
@@ -457,7 +612,7 @@ async function loadProfile () {
 
 
 
-/* ======== Navigation (links) ================================= */
+/* ======== Navigation (links) ================================= 
 function navigate (e) {
   const link = e.target.closest('[data-link]')
   if (!link) return
@@ -466,7 +621,7 @@ function navigate (e) {
   render(location.pathname)
 }
 
-/* ======== Global listeners & init =========================== */
+/* ======== Global listeners & init =========================== 
 document.addEventListener('click', e => {
   if (e.target.id === 'logout') {
     e.preventDefault()
@@ -477,6 +632,23 @@ document.addEventListener('click', e => {
   }
   navigate(e)
 })
+
 window.addEventListener('popstate', () => render(location.pathname))
+initBackground()
 render(location.pathname)
 updateNav()
+*/
+
+
+//////////////////////////////
+/////// NEW /////////////////
+//////////////////////////////
+
+import { mountNavAtStartup } from './ui/nav.js'
+import { initBackground }    from './ui/background.js'
+import { initRouter }        from './core/router.js'
+
+mountNavAtStartup()  // injecte la barre + état Log In / Log Out
+initBackground()     // crée l’unique instance Vanta
+initRouter()         // démarre le router SPA
+

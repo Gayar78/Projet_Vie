@@ -92,7 +92,10 @@ async def leaderboard():
     q = db.collection("users") \
           .order_by("points", direction=firestore.Query.DESCENDING) \
           .stream()
-    return [{**d.to_dict(), "uid": d.id} for d in q]
+    return [{**d.to_dict(), "id": d.id} for d in q]
+
+
+
 
 
 

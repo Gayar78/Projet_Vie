@@ -1,0 +1,1 @@
+export const currentLang = 'fr'  // TODO : bascule FR/EN

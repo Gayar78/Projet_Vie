@@ -1,31 +1,33 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scrollbar-hide">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>ProjetVie</title>
+  <title>DraftPrime</title>
+
+  <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Utilitaires facultatifs -->
+  <link rel="stylesheet" href="/static/css/utilities.css" />
+
+  <style>
+    .scrollbar-hide::-webkit-scrollbar,
+    html.scrollbar-hide::-webkit-scrollbar {
+      display: none;           /* on cache UNIQUEMENT la barre */
+    }
+
+    .scrollbar-hide,
+    html.scrollbar-hide {
+      -ms-overflow-style: none; /* IE / Edge */
+      scrollbar-width: none;    /* Firefox */
+    }
+  </style>
 </head>
 
-<body class="bg-gradient-to-br from-[#0f0f1b] via-[#141423] to-[#1a1a2e] text-white font-sans">
-  <!-- ==== NAVBAR (unique, réutilisée par le SPA) ==== -->
-  <nav class="fixed top-4 left-1/2 -translate-x-1/2 px-6 py-3 flex items-center gap-10
-              backdrop-blur-xl bg-white/10 border border-white/20 rounded-full z-50 text-sm">
-    <div class="flex items-center gap-2 font-semibold">
-      🏛 <a href="/" data-link class="text-pink-400">ProjetVie</a>
-    </div>
-
-    <div class="flex gap-8">
-      <a href="/leaderboard" data-link class="hover:text-pink-400">Leaderboard</a>
-      <a href="https://github.com/Gayar78" target="_blank" class="hover:text-pink-400">GitHub</a>
-    </div>
-
-    <!-- Zone dynamique : remplie par JS -->
-    <div id="nav-right" class="flex gap-6"></div>
-  </nav>
-
+<body class="scrollbar-hide bg-gradient-to-br from-[#0f0f1b] via-[#141423] to-[#1a1a2e] text-white font-sans">
   <!-- Contenu SPA -->
-  <div id="app" class="pt-28"></div>
+  <div id="app"></div>
 
   <script type="module" src="/static/js/main.js"></script>
 </body>

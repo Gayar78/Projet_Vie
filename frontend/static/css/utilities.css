@@ -1,0 +1,16 @@
+/* ajouter vos utilitaires perso */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .glow-user {
+    @apply border-2 border-pink-500 rounded-xl bg-white/10;
+    box-shadow: 0 0 14px 4px rgba(236, 72, 153, 0.8);
+    animation: pulseGlow 2s infinite;
+  }
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 14px 4px rgba(236, 72, 153, .8); }
+    50%      { box-shadow: 0 0 22px 6px rgba(236, 72, 153, 1); }
+  }
+}
