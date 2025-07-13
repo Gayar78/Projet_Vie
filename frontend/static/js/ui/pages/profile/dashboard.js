@@ -1,16 +1,17 @@
-/*  dashboard — page principale du profil
-    appelé par router.js   pageMod.default(user)                       */
+/* dashboard — page principale du profil
+   appelé par router.js : pageMod.default(user)                  */
 
 import { api } from '../../../core/api.js'
+import { rankFromPoints } from '../leaderboard.js'   // <- même helper partagé
 
 export default function dashboard (user = {}) {
   /* ------- helpers --------------------------------------- */
-  const rankImg = `/static/images/ranks/${user.rank || 'iron'}.png`
+  const rankImg = `/static/images/ranks/${rankFromPoints(user.points || 0)}.png`
   const pts2coins = Math.floor((user.points || 0) / 10)
 
   return /* html */ `
   <div class="space-y-12">
-  <!-- Canvas Vanta -->
+    <!-- Canvas Vanta -->
     <div id="hero-bg" class="fixed inset-0 -z-10"></div>
 
     <!-- ── STATS RAPIDES ─────────────────────────────────── -->
@@ -76,11 +77,11 @@ export function setupDashboard () {
     window.dispatchEvent(new PopStateEvent('popstate'))
   })
 
-  /* delete account (très basique) */
+  /* delete account (simple) */
   document.getElementById('delete-btn')?.addEventListener('click', async () => {
     if (!confirm('Supprimer définitivement votre compte ?')) return
     try {
-      await api('/profile', { delete: true }, 'POST') // à implémenter côté backend
+      await api('/profile', { delete: True }, 'POST') // à implémenter côté back
     } catch {}
     localStorage.clear()
     history.replaceState(null, '', '/')

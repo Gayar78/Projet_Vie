@@ -23,7 +23,7 @@ const NAV_HTML = /* html */ `
     <!-- Liens principaux -->
     <ul class="flex items-center gap-8 text-sm">
       <li><a href="/leaderboard" data-link class="hover:text-pink-400">Leaderboard</a></li>
-      <li><a href="/market"      data-link class="hover:text-pink-400">Market</a></li>
+      <!--<li><a href="/market"      data-link class="hover:text-pink-400">Boutique</a></li>-->
       <li><a href="https://github.com/" target="_blank" rel="noopener"
              class="hover:text-pink-400">GitHub&nbsp;↗︎</a></li>
     </ul>

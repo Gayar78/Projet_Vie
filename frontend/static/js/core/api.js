@@ -1,5 +1,5 @@
 // Helper API ⇄ FastAPI backend (proxy « /api »)
-export async function api (path, body = null, method = 'POST') {
+export async function api(path, body=null, method='POST') {
   const r = await fetch('/api' + path, {
     method,
     headers: {
