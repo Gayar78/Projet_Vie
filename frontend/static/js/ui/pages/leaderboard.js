@@ -4,16 +4,7 @@
 // -----------------------------------------------------------------------------
 import { api } from '../../core/api.js'
 
-/*──────────────────────── 1. Helper rang visuel ─────────────────────────────*/
-export function rankFromPoints (score, max = 80_000) {
-  const idx = Math.min(9, Math.floor((score / max) * 10))
-  return [
-    'iron', 'bronze', 'silver', 'gold', 'platinium',
-    'emeraude', 'diamond', 'master', 'grandmaster', 'challenger'
-  ][idx]
-}
-
-/*──────────────────────── 2. Mapping catégories / metrics ───────────────────*/
+/*──────────────────────── 1. Mapping catégories / metrics ───────────────────*/
 export const categories = {
   general: { label: 'Général', sub: [{ value: 'general', label: 'Général' }] },
 
@@ -21,24 +12,23 @@ export const categories = {
     label: 'Musculation',
     sub: [
       { value: 'total',           label: 'Total'            },
-      { value: 'bench',           label: 'Bench press'      },
+      { value: 'bench',           label: 'Développé couché' },
       { value: 'squat',           label: 'Squat'            },
       { value: 'deadlift',        label: 'Soulevé de terre' },
-      { value: 'weighted-pullup', label: 'Traction lestée'  },
-      { value: 'overhead-press',  label: 'Military press'   },
-      { value: 'vertical-row',    label: 'Tirage vertical'  }
+      { value: 'overhead_press',  label: 'Développé militaire' },
+      { value: 'vertical_row',    label: 'Tirage vertical'  }
     ]
   },
 
   street: {
-    label: 'Street-Work-Out',
+    label: 'Street Work Out',
     sub: [
       { value: 'total',           label: 'Total'           },
-      { value: 'weighted-pullup', label: 'Traction lestée' },
-      { value: 'weighted-dip',    label: 'Dips lestés'     },
-      { value: 'front-lever',     label: 'Front lever'     },
-      { value: 'full-planche',    label: 'Full planche'    },
-      { value: 'human-flag',      label: 'Drapeau humain'  },
+      { value: 'weighted_pullup', label: 'Traction lestée' },
+      { value: 'weighted_dip',    label: 'Dips lestés'     },
+      { value: 'front_lever',     label: 'Front lever'     },
+      { value: 'full_planche',    label: 'Full planche'    },
+      { value: 'human_flag',      label: 'Drapeau humain'  },
     ]
   },
 
@@ -53,7 +43,7 @@ export const categories = {
   }
 }
 
-/*──────────────────────── 3. Markup principal ───────────────────────────────*/
+/*──────────────────────── 2. Markup principal ───────────────────────────────*/
 export default function leaderboardPage () {
   return /* html */`
 <section class="relative min-h-[calc(100vh-160px)] px-6 pb-20 flex flex-col
@@ -124,7 +114,7 @@ export default function leaderboardPage () {
 </section>`
 }
 
-/*──────────────────────── 4. Helpers show / hide menu ───────────────────────*/
+/*──────────────────────── 3. Helpers show / hide menu ───────────────────────*/
 const show = m => { m.classList.remove('opacity-0','scale-95','pointer-events-none')
                     m.classList.add('opacity-100','scale-100')
                     m.previousElementSibling.querySelector('svg')
@@ -135,7 +125,7 @@ const hide = m => { m.classList.add('opacity-0','scale-95','pointer-events-none'
                     m.previousElementSibling.querySelector('svg')
                      ?.classList.remove('rotate-180') }
 
-/*──────────────────────── 5. Init filtres + 1er chargement ─────────────────*/
+/*──────────────────────── 4. Init filtres + 1er chargement ─────────────────*/
 export function initLeaderboardFilters () {
   const catBtn  = document.getElementById('cat-btn')
   const catLab  = document.getElementById('cat-label')
@@ -201,7 +191,7 @@ export function initLeaderboardFilters () {
   loadLeaderboard(currentCat,currentMet)
 }
 
-/*──────────────────────── 6. Chargement + rendu tableau ────────────────────*/
+/*──────────────────────── 5. Chargement + rendu tableau ────────────────────*/
 export async function loadLeaderboard (cat='general', metric='general') {
   const myId = localStorage.getItem('userId')
   const tbody = document.getElementById('leaderboard-body')
@@ -234,7 +224,10 @@ export async function loadLeaderboard (cat='general', metric='general') {
         </td>
 
         <td>
-          <img src="/static/images/ranks/${rankFromPoints(u.points,catMax)}.png"
+          <img src="/static/images/ranks/${[
+            'iron','bronze','silver','gold','platinium',
+            'emeraude','diamond','master','grandmaster','challenger'
+          ][(u.rank ?? 0) - 1]}.png"
                class="w-12 h-12 object-contain">
         </td>
 
@@ -250,7 +243,7 @@ export async function loadLeaderboard (cat='general', metric='general') {
   }
 }
 
-/*──────────────────────── 7. Activity mock ────────────────────────────────*/
+/*──────────────────────── 6. Activity mock ────────────────────────────────*/
 export function loadActivity () {
   const box = document.getElementById('activity-feed')
   if (!box) return
@@ -261,7 +254,7 @@ export function loadActivity () {
        hit <span class="text-pink-400 font-semibold">+50&nbsp;pts</span> on deadlifts</p>`
 }
 
-/*──────────────────────── 8. Bootstrap DOM (si page chargée directement) ──*/
+/*──────────────────────── 7. Bootstrap DOM (si page chargée directement) ──*/
 document.addEventListener('DOMContentLoaded', () => {
   initLeaderboardFilters()
   loadActivity()

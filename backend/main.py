@@ -14,7 +14,7 @@ from google.api_core import exceptions as gexc   # utile pour try/except
 # ---------------------------------------------------------------------------
 #  Fonctions utilitaires
 # ---------------------------------------------------------------------------
-P_MAX = 80_000            # plafond global (tous exos niveau 10 cumulés)
+P_MAX = 10_000            # plafond global (tous exos niveau 10 cumulés)
 
 
 def total_exercises(categories: dict) -> int:
@@ -51,17 +51,49 @@ app.add_middleware(
 # ─── Mapping cat/metrics (doit rester cohérent avec le front) ───────────
 CATEGORIES = {
     "muscu": [
-        "bench", "squat", "deadlift",
-        "weighted-pullup", "overhead-press", "vertical-row"
+        "bench", "squat", "deadlift", "overhead_press", "vertical_row"
     ],
     "street": [
-        "weighted-pullup", "weighted-dip", "front-lever",
-        "full-planche", "human-flag"
+        "weighted_pullup", "weighted_dip", "front_lever",
+        "full_planche", "human_flag"
     ],
     "cardio": ["run", "bike", "rope"],
     "general": ["general"],
 }
 TOTAL_EX = total_exercises(CATEGORIES)
+
+# ─── NEW : bornes (0 → 714) par exercice ──────────────────────
+# Rang 1 = Fer, Rang 10 = Challenger
+RANK_INTERVALS = {
+    "exercice": [(0,71), (71,143), (143,214), (214,286), (286,357),
+                (357,429), (429,500), (500,571), (571,643), (643,714)],
+    "muscu": [(0,428),(428,857),(857,1286),(1286,1714),(1714,2143),
+              (2143,2571),(2571,3000),(3000,3428),(3428,3857),(3857,4280)],
+    "street":[(0,357),(357,714),(714,1071),(1071,1428),(1428,1785),
+              (1785,2142),(2142,2500),(2500,2857),(2857,3214),(3214,3570)],
+    "cardio":[(0,214),(214,429),(429,643),(643,857),(857,1071),
+              (1071,1286),(1286,1500),(1500,1714),(1714,1928),(1928,2140)],
+    "general":[(0,928),(928,1857),(1857,2786),(2786,3714),(3714,4643),
+               (4643,5571),(5571,6500),(6500,7428),(7428,8357),(8357,10000)],
+}
+
+def rank_level(metric: str, pts: int | float) -> int | None:
+    """Calcule un rang 1‒10 proportionnellement au plafond de points.
+
+    * metric == "exercice"  → plafond = P_MAX / TOTAL_EX  (un seul exo)
+    * metric dans CATEGORIES → plafond = cat_max_points(metric)
+    * sinon                  → None
+    """
+    if metric == "exercice":
+        max_pts = P_MAX / TOTAL_EX
+    elif metric in CATEGORIES:
+        max_pts = cat_max_points(metric)
+    else:
+        return None
+
+    step = max_pts / 10       # 10 intervalles égaux
+    # rang = 1 si 0 ≤ pts < step, …, 10 si pts ≥ 9*step
+    return min(10, int(pts // step) + 1)
 
 # ─── Schémas Pydantic ───────────────────────────────────────────────────
 class UserIn(BaseModel):
@@ -188,35 +220,70 @@ async def submit_performance(p: PerformanceIn, uid: str = Depends(get_uid)):
 # --------------------------------------------------------------------------
 #   Leaderboard
 # --------------------------------------------------------------------------
+
 @app.get("/leaderboard")
-async def leaderboard(cat: str = "general", metric: str = "general", limit: int = 100):
-    if cat not in CATEGORIES or (metric not in CATEGORIES[cat] and metric != "total"):
+async def leaderboard(
+    cat: str = "general",
+    metric: str = "general",
+    limit: int = 100,
+):
+    """Renvoie le classement + rang (1‑10) pour la combinaison demandée."""
+
+    # 1) validation ------------------------------------------------------
+    if cat not in CATEGORIES or (
+        metric not in CATEGORIES[cat] and metric != "total"
+    ):
         raise HTTPException(400, "Invalid category/metric")
 
-    # points maxi dans ce tableau — même logique que le front
-    if cat == "general":
-        cat_max = P_MAX
-    elif cat == "muscu":
-        cat_max = P_MAX / 14 * 6
-    elif cat == "street":
-        cat_max = P_MAX / 14 * 5
-    else:  # cardio
-        cat_max = P_MAX / 14 * 3
+    # 2) échappe le champ Firestore si jamais il contenait un tiret -------
+    escape = lambda f: f if f.isidentifier() else f"`{f}`"
 
-    cg = (db.collection_group("scores")
-            .order_by(metric, direction=firestore.Query.DESCENDING)
-            .limit(limit).stream())
+    # 3) interroge collection_group triée sur <metric> -------------------
+    docs = (
+        db.collection_group("scores")
+        .order_by(escape(metric), direction=firestore.Query.DESCENDING)
+        .limit(limit * 2)  # sur‑échantillonne puis filtre
+        .stream()
+    )
 
     out = []
-    for d in cg:
-        uid = d.reference.parent.parent.id
+    for d in docs:
+        if d.id != cat:
+            continue  # ne garde que la discipline requise
+
+        uid   = d.reference.parent.parent.id
         score = d.get(metric) or 0
+        if score == 0:
+            continue  # masque ceux à 0 pt
+
+        # 4) Choix du barème : total → barème de la discipline ;
+        #    sinon → barème "exercice" universel
+        rank_metric = cat if metric in ('total', 'general') else 'exercice'
+        rank = rank_level(rank_metric, score)
+
         prof = db.collection("users").document(uid).get().to_dict() or {}
+
         out.append({
-            "id": uid,
-            "points": score,
+            "id":          uid,
+            "points":      score,
+            "rank":        rank,
             "displayName": prof.get("displayName", ""),
-            "email": prof.get("email", ""),
+            "email":       prof.get("email", ""),
         })
 
-    return {"list": out, "catMax": cat_max}
+        if len(out) >= limit:
+            break
+
+    return {
+        "list":   out,
+        "catMax": cat_max_points(cat),  # garde pour le front si besoin
+    }
+
+
+# ──────────── NEW helper (en haut du fichier si vous voulez) ──────────────
+def cat_max_points(cat: str) -> int:
+    """Plafond de points pour chaque discipline (rang Challenger)."""
+    if cat == "general":
+        return P_MAX
+    nb_ex = len(CATEGORIES[cat])          # nb de métriques de la discipline
+    return int(P_MAX / TOTAL_EX * nb_ex)  # même logique que le front
