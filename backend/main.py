@@ -167,16 +167,17 @@ async def profile(uid: str = Depends(get_uid)):
 
     # total points (doc scores/general)
     try:
-        pts = (db.collection("users")
-                 .document(uid)
-                 .collection("scores")
-                 .document("general")
-                 .get()
-                 .get("general", 0))
-    except gexc.GoogleAPICallError:
+        snap = (db.collection("users")
+                  .document(uid)
+                  .collection("scores")
+                  .document("general")
+                  .get())                 # DocumentSnapshot
+        pts = snap.get("general") or 0    # 1 seul argument
+    except (gexc.GoogleAPICallError, KeyError):
         pts = 0
+
     data["points"] = pts
-    data["uid"] = uid
+    data["uid"]    = uid
     return data
 
 
