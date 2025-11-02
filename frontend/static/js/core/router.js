@@ -130,7 +130,9 @@ export function initRouter () {
 
     if (searchContainer && !searchContainer.contains(e.target)) {
       if (resultsDiv) {
-        resultsDiv.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
+        resultsDiv.classList.add('opacity-0', 'scale-95', 'pointer-events-none'); 
+        resultsDiv.classList.remove('animate-spring-in');
+        searchContainer.classList.remove('w-96');
       }
     }
 
@@ -145,6 +147,8 @@ export function initRouter () {
     // NOUVEAU: Cache aussi les résultats lors d'une navigation
     if (resultsDiv) {
       resultsDiv.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
+      resultsDiv.classList.remove('animate-spring-in');
+      searchContainer.classList.remove('w-96');
     }
   });
 

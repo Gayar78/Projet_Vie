@@ -4,13 +4,94 @@
 @tailwind utilities;
 
 @layer utilities {
-  .glow-user {
-    @apply border-2 border-pink-500 rounded-xl bg-white/10;
-    box-shadow: 0 0 14px 4px rgba(236, 72, 153, 0.8);
-    animation: pulseGlow 2s infinite;
-  }
-  @keyframes pulseGlow {
-    0%, 100% { box-shadow: 0 0 14px 4px rgba(236, 72, 153, .8); }
-    50%      { box-shadow: 0 0 22px 6px rgba(236, 72, 153, 1); }
-  }
+  .glow-user {
+    @apply border-2 border-pink-500 rounded-xl bg-white/10;
+    box-shadow: 0 0 14px 4px rgba(236, 72, 153, 0.8);
+    animation: pulseGlow 2s infinite;
+  }
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 14px 4px rgba(236, 72, 153, .8); }
+    50%      { box-shadow: 0 0 22px 6px rgba(236, 72, 153, 1); }
+  }
+
+  .animate-spring-in {
+    animation: spring-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  @keyframes spring-in {
+    0% {
+      opacity: 0;
+      transform: scale(0.9) translateY(-10px);
+    }
+    80% {
+      transform: scale(1.02) translateY(0);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .card-liquid-hover {
+    @apply transition-all duration-300 ease-out;
+    /* On prépare une taille de fond pour l'animation */
+    background-size: 200% 200%;
+    background-position: 50% 50%;
+  }
+  .card-liquid-hover:hover {
+    @apply scale-[1.02] shadow-2xl;
+    /* On déplace le fond en dégradé pour simuler un reflet 3D */
+    background-position: 100% 100%;
+  }
+  .btn-glass {
+    @apply px-5 py-2 rounded-full font-semibold
+           text-gray-100
+           bg-white/10 backdrop-blur-md 
+           border border-white/20 
+           shadow-lg
+           transition-all duration-150 ease-out;
+  }
+  .btn-glass:hover {
+    @apply bg-white/20 shadow-xl scale-105;
+  }
+  .btn-glass:active {
+    @apply scale-95 opacity-90 brightness-90;
+  }
+  .btn-liquid-press:hover {
+    @apply shadow-xl scale-105;
+  }
+  .btn-liquid-press:active {
+    /* L'effet "pressé" : on l'enfonce et il perd en couleur */
+    @apply scale-95 opacity-90 brightness-90;
+  }
+
+  /* ─────────────────────────────────────────────────────────── */
+  /* ↓↓↓ C'EST LA CORRECTION PRINCIPALE ↓↓↓                      */
+  /* ─────────────────────────────────────────────────────────── */
+  .liquid-glass-card {
+    /* 1. Fond CLAIR, similaire à la nav-bar */
+    @apply bg-white/70 backdrop-blur-lg;
+
+    /* 2. Le filtre SVG (inchangé) */
+    filter: url(#glass-distortion);
+
+    /* 3. Reflets clairs */
+    @apply border border-white/30; /* Bordure plus claire */
+    box-shadow: 
+      /* Ombre douce externe */
+      0px 8px 32px 0px rgba(0, 0, 0, 0.1), /* Ombre plus légère */
+      /* Reflet de lumière interne (haut-gauche) */
+      inset 1px 1px 1px 0px rgba(255, 255, 255, 0.7),
+      /* Ombre interne (bas-droite) */
+      inset -1px -1px 1px 0px rgba(0, 0, 0, 0.05);
+
+    /* 4. Physique (inchangée) */
+    @apply transition-all duration-300 ease-out;
+    background-size: 200% 200%;
+    background-position: 50% 50%;
+  }
+  .liquid-glass-card:hover {
+      @apply scale-[1.02] shadow-2xl;
+      background-position: 100% 100%; 
+  }
 }

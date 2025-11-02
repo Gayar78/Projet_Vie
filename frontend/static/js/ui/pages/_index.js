@@ -21,4 +21,5 @@ export const pages = {
   '/register':  register,
   '/leaderboard': leaderboard,
   // les /profile/* sont gérés dans router.js
+  // les /user/* sont gérés dans router.js
 }

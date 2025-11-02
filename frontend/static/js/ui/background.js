@@ -1,52 +1,58 @@
-/* Background Vanta.NET — limité au bloc Hero */
-let vanta, colorLoopId
+/* Background Vanta.HALO — Global, clair, et liquide */
+let vanta;
 
-function loadScript (src) {
+// Helper pour charger les scripts
+function loadScript(src) {
   return new Promise((ok, fail) => {
-    if (document.querySelector(`script[src="${src}"]`)) return ok()
-    const s = Object.assign(document.createElement('script'), { src })
-    s.onload = ok
-    s.onerror = () => fail(new Error('⨂ ' + src))
-    document.head.appendChild(s)
-  })
+    // Ne pas re-charger un script s'il est déjà là
+    if (document.querySelector(`script[src="${src}"]`)) return ok();
+    const s = Object.assign(document.createElement('script'), { src });
+    s.onload = ok;
+    s.onerror = () => fail(new Error(`Erreur de chargement du script: ${src}`));
+    document.head.appendChild(s);
+  });
 }
 
-export async function initBackground () {
-  /* ne relance pas si #hero-bg absent */
-  const box = document.getElementById('hero-bg')
-  if (!box) return
-
-  /* détruit l’instance précédente si on re-rend la page */
-  vanta?.destroy?.()
-  cancelAnimationFrame(colorLoopId)
-
-  /* charge Three puis Vanta (jsDelivr = fiable) */
-  await loadScript('https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js')
-  await loadScript('https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.net.min.js')
-
-  if (!window.VANTA) { console.error('VANTA introuvable'); return }
-
-  vanta = VANTA.NET({
-    el: box,
-    backgroundColor: 0x0b0614,
-    color: 0x1565ff,
-    points: 10,
-    maxDistance: 25,
-    spacing: 18,
-    mouseControls: false,
-    gyroControls: false
-  })
-
-  /* cycle bleu ↔ rouge */
-  const BLUE = 0x1565ff, RED = 0xff2640
-  const lerp = (a,b,t)=>Math.round(a+(b-a)*t)
-  const lerpHex = (c1,c2,t)=>((lerp((c1>>16)&255,(c2>>16)&255,t)<<16)|
-                               (lerp((c1>>8)&255 ,(c2>>8)&255 ,t)<<8) |
-                                lerp(c1&255,c2&255,t))
-  const loop = t => {
-    vanta.setOptions({ color: lerpHex(BLUE, RED, (Math.sin(t/4000)+1)/2) })
-    colorLoopId = requestAnimationFrame(loop)
+export async function initBackground() {
+  /* Cible le conteneur global créé dans index.html */
+  const box = document.getElementById('vanta-bg');
+  if (!box) {
+    console.log("Conteneur #vanta-bg non trouvé, le fond ne sera pas lancé.");
+    return;
   }
-  colorLoopId = requestAnimationFrame(loop)
-}
 
+  /* Détruit l'instance précédente si on re-rend la page (navigation SPA) */
+  vanta?.destroy?.();
+
+  try {
+    /* Charge Three.js puis Vanta.HALO */
+    await loadScript('https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.halo.min.js');
+  
+    if (window.VANTA) {
+      vanta = VANTA.HALO({
+        el: box,
+        mouseControls: false,
+        touchControls: false,
+        gyroControls: false,
+        
+        // --- Configuration du style "Futuriste / Liquide Clair" ---
+        
+        // Couleurs dominantes: blanc et bleu ciel
+        backgroundColor: 0xf0f4f8, // Fond (le même que le bg-gray-100)
+        baseColor: 0xadd8e6,       // Bleu ciel
+        highlightColor: 0xffffff,  // Reflets blancs
+        
+        // Ajustements pour un look "liquide" et doux
+        amplitudeFactor: 2.00,
+        size: 1.50, // Un peu plus dézoomé
+        xOffset: 0.20,
+        yOffset: 0.10
+      });
+    } else {
+      console.error('Erreur: Objet VANTA introuvable après chargement.');
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}

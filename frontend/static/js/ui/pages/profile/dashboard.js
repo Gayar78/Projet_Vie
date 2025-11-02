@@ -3,7 +3,7 @@
 */
 
 import { api } from '../../../core/api.js'
-import { rankFromPoints } from '../leaderboard.js'  // <- même helper partagé
+import { rankFromPoints } from '../leaderboard.js' // <- même helper partagé
 
 // Helper pour mapper les slugs aux jolis noms
 const CATEGORY_NAMES = {
@@ -23,11 +23,13 @@ export default function dashboard (user = {}) {
     .filter(([key]) => key !== 'general') // On exclut le total, déjà affiché
     .sort(([keyA], [keyB]) => keyA.localeCompare(keyB)) // Trie muscu, street, cardio
     .map(([key, value]) => `
-      <div class="bg-white/10 p-4 rounded-lg">
-        <h4 class="font-semibold text-purple-300">${CATEGORY_NAMES[key] || key}</h4>
-        <p class="text-2xl font-bold">${(value && value.total) ? value.total.toLocaleString() : 0} pts</p>
+      <!-- MODIFIÉ : Carte "Glass" -->
+      <div class="bg-white/70 backdrop-blur-lg border border-white/30 shadow-lg p-4 rounded-lg">
+        <!-- MODIFIÉ : Texte sombre -->
+        <h4 class="font-semibold text-blue-600">${CATEGORY_NAMES[key] || key}</h4>
+        <p class="text-2xl font-bold text-gray-900">${(value && value.total) ? value.total.toLocaleString() : 0} pts</p>
 
-        <div class="mt-2 text-sm text-gray-300 space-y-1">
+        <div class="mt-2 text-sm text-gray-700 space-y-1">
           ${Object.entries(value || {})
             .filter(([exKey]) => exKey !== 'total')
             .map(([exKey, exPoints]) => `
@@ -41,72 +43,78 @@ export default function dashboard (user = {}) {
     `).join('');
 
   return /* html */ `
-  <div class="space-y-12">
-    <div id="hero-bg" class="fixed inset-0 -z-10"></div>
+  <!-- MODIFIÉ : Panneau "Liquid Glass" unifié -->
+  <div class="space-y-6 liquid-glass-card rounded-2xl p-6">
 
-    <section
-      class="grid sm:grid-cols-3 gap-6 bg-white/5 backdrop-blur-md p-6
-             rounded-2xl border border-white/10 text-center text-sm">
+    <!-- ── STATS RAPIDES ─────────────────────────────────── -->
+    <section class="grid sm:grid-cols-3 gap-6 text-center text-sm">
       <div>
-        <p class="text-gray-400">Points</p>
-        <p class="text-2xl font-semibold text-pink-400">${(user.points || 0).toLocaleString()}</p>
+        <p class="text-gray-600">Points</p>
+        <p class="text-2xl font-semibold text-pink-500">${(user.points || 0).toLocaleString()}</p>
       </div>
       <div class="flex flex-col items-center">
-        <p class="text-gray-400 mb-1">Rang actuel</p>
+        <p class="text-gray-600 mb-1">Rang actuel</p>
         <img src="${rankImg}" alt="rank" class="w-14 h-14 object-contain" />
       </div>
       <div>
-        <p class="text-gray-400">Coins</p>
-        <p class="text-2xl font-semibold text-yellow-400">${pts2coins.toLocaleString()}</p>
+        <p class="text-gray-600">Coins</p>
+        <p class="text-2xl font-semibold text-yellow-500">${pts2coins.toLocaleString()}</p>
       </div>
     </section>
-    
 
-    <section class="bg-white/5 backdrop-blur-md p-6 rounded-2xl border border-white/10">
-      <h3 class="text-lg font-semibold mb-4">Mes Scores Détaillés</h3>
+    <!-- SÉPARATEUR LIQUIDE -->
+    <hr class="border-black/10" />
+
+    <!-- ── SCORES PAR CATÉGORIE ───────────────── -->
+    <section>
+      <h3 class="text-lg font-semibold mb-4 text-gray-900">Mes Scores Détaillés</h3>
       <div class="grid md:grid-cols-3 gap-4">
-        ${scoresHtml || '<p class="text-gray-400">Aucun score enregistré.</p>'}
+        ${scoresHtml || '<p class="text-gray-600">Aucun score enregistré.</p>'}
       </div>
     </section>
 
+    <!-- SÉPARATEUR LIQUIDE -->
+    ${user.bio ? '<hr class="border-black/10" />' : ''}
+
+    <!-- ── BIOGRAPHIE ───────────────── -->
     ${user.bio ? `
-    <section class="bg-white/5 backdrop-blur-md p-6 rounded-2xl border border-white/10">
-      <h3 class="text-lg font-semibold mb-2">Biographie</h3>
-      <p class="text-gray-300 whitespace-pre-wrap">${user.bio}</p>
+    <section>
+      <h3 class="text-lg font-semibold mb-2 text-gray-900">Biographie</h3>
+      <p class="text-gray-700 whitespace-pre-wrap">${user.bio}</p>
     </section>
     ` : ''}
 
-    <section class="bg-white/5 backdrop-blur-md p-6 rounded-2xl
-                    border border-white/10">
-      <h3 class="text-lg font-semibold mb-4">Votre Instagram</h3>
+    <!-- SÉPARATEUR LIQUIDE -->
+    <hr class="border-black/10" />
 
-      <form id="insta-form"
-            class="flex flex-col sm:flex-row gap-4 items-start">
+    <!-- ── INSTAGRAM ───────────────── -->
+    <section>
+      <h3 class="text-lg font-semibold mb-4 text-gray-900">Votre Instagram</h3>
+      <form id="insta-form" class="flex flex-col sm:flex-row gap-4 items-start">
+        <!-- MODIFIÉ : Champ "Glass" -->
         <input name="instagram" type="text" placeholder="handle (sans @)"
                value="${user.instagram || ''}"
-               class="flex-1 px-3 py-2 rounded-lg bg-gray-800 w-full" />
-        <button
-          class="px-5 py-2 rounded-lg bg-gradient-to-r
-                 from-pink-500 to-purple-600 hover:opacity-90 font-semibold">
+               class="flex-1 px-3 py-2 rounded-lg bg-white/70 border-0 ring-1 ring-black/10 shadow-inner focus:ring-2 focus:ring-pink-500 w-full" />
+        <!-- MODIFIÉ : Bouton sombre -->
+        <button class="px-5 py-2 rounded-lg bg-gray-900 text-white hover:bg-gray-700 font-semibold btn-liquid-press">
           Mettre à jour
         </button>
       </form>
-
       ${user.instagram ? `
         <p class="mt-4 text-sm">
           Profil&nbsp;: <a href="https://instagram.com/${user.instagram}"
                            target="_blank" rel="noopener"
-                           class="text-pink-400 hover:underline">
+                           class="text-pink-500 hover:underline">
                             @${user.instagram}</a>
         </p>` : ''}
-
       <p id="insta-msg" class="mt-2 text-sm"></p>
     </section>
-  </div>`
+
+  </div> <!-- Fin du panneau "Liquid Glass" -->
+  `
 }
 
 /* ───────── post-render logic ────────────────────────────── */
-// Ta logique pour le formulaire Insta reste la même
 export function setupDashboard () {
   /* update Insta */
   const f   = document.getElementById('insta-form')
@@ -116,12 +124,17 @@ export function setupDashboard () {
     e.preventDefault()
     const handle = f.instagram.value.trim()
     try {
-      await api('/profile', { instagram: handle }, 'POST')
+      // On envoie aussi la version lowercase
+      await api('/profile', { 
+          instagram: handle,
+          displayName: handle, // Met aussi à jour le displayName si vide
+          displayName_lowercase: handle.toLowerCase() // Et le lowercase
+      }, 'POST')
+      
       msg.textContent = 'Instagram mis à jour ✔︎'
-      msg.className   = 'text-green-400 text-sm'
+      msg.className   = 'text-green-500 text-sm'
 
       // Rafraîchit la page pour voir le lien
-      // C'est simple et ça marche
       window.dispatchEvent(new PopStateEvent('popstate'));
 
     } catch {
@@ -130,6 +143,3 @@ export function setupDashboard () {
     }
   })
 }
-
-// N'OUBLIE PAS : On doit aussi appeler setupDashboard après le rendu
-// On vérifie que c'est bien branché dans router.js
