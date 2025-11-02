@@ -1,16 +1,19 @@
 // static/js/ui/pages/home.js
+import { api } from '../../core/api.js';
+import { rankFromPoints } from './leaderboard.js'; // On a besoin de ça
+
+// ------------------------------------------------------------------
+// 1. Le HTML de la page
+// ------------------------------------------------------------------
 export default function home () {
   return /* html */ `
-  <!-- HERO -------------------------------------------------- -->
   <section
     class="relative flex flex-col items-center justify-center text-center
            px-6 pb-32 overflow-hidden
            min-h-[calc(100vh-160px)]"
   >
-    <!-- Canvas Vanta couvrant tout le viewport -->
     <div id="hero-bg" class="fixed inset-0 -z-10"></div>
 
-    <!-- HEADLINE + SLOGAN -->
     <h1 class="text-5xl md:text-6xl font-extrabold leading-tight mb-4 text-center">
       Rise, Record,<br />
       <span class="bg-gradient-to-r from-pink-500 to-purple-500
@@ -21,8 +24,7 @@ export default function home () {
 
     <p class="max-w-2xl mx-auto text-gray-300 mb-10 text-center">
       La première plateforme communautaire où chaque performance compte&nbsp;:
-      partage tes exploits, grimpe au classement et gagne des récompenses
-      réelles tous les&nbsp;6&nbsp;mois.
+      partage tes exploits, grimpe au classement et deviens une légende.
     </p>
 
     <a
@@ -32,172 +34,107 @@ export default function home () {
              hover:opacity-90 font-semibold text-white shadow-lg
              shadow-pink-500/30"
     >
-      Créer mon compte
+      Rejoins la compétition
     </a>
   </section>
 
-  <!-- LEADERBOARD PREVIEW ----------------------------------- -->
   <section class="py-24 px-6 bg-[#0d0818] border-t border-white/10">
+    <div class="max-w-6xl mx-auto text-center">
+      <h2 class="text-3xl font-bold mb-4">Comment ça marche ?</h2>
+      <p class="text-gray-400 max-w-2xl mx-auto mb-16">
+        Notre système est simple et transparent. Prouve ta performance, 
+        gagne des points, et domine le classement.
+      </p>
+      
+      <div class="grid md:grid-cols-3 gap-12">
+        <div class="flex flex-col items-center">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-r from-pink-500/30 to-purple-500/30 flex items-center justify-center border-2 border-pink-500">
+            <svg class="w-8 h-8 text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M4 6h10c1.1 0 2 .9 2 2v8c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V8c0-1.1.9-2 2-2z"></path></svg>
+          </div>
+          <h3 class="text-xl font-semibold mt-4 mb-2">1. Filmez</h3>
+          <p class="text-gray-400 text-sm">
+            Enregistre ta performance (Bench, Squat, 5km...) en suivant nos critères de validation.
+          </p>
+        </div>
+        
+        <div class="flex flex-col items-center">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-r from-pink-500/30 to-purple-500/30 flex items-center justify-center border-2 border-pink-500">
+            <svg class="w-8 h-8 text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12 12 0 003 20.955a11.955 11.955 0 019-4.044 11.955 11.955 0 019 4.044 12 12 0 00-2.382-9.969z"></path></svg>
+          </div>
+          <h3 class="text-xl font-semibold mt-4 mb-2">2. Validez</h3>
+          <p class="text-gray-400 text-sm">
+            Soumets ta vidéo. Nos administrateurs l'analysent et calculent ton score officiel.
+          </p>
+        </div>
+        
+        <div class="flex flex-col items-center">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-r from-pink-500/30 to-purple-500/30 flex items-center justify-center border-2 border-pink-500">
+            <svg class="w-8 h-8 text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg>
+          </div>
+          <h3 class="text-xl font-semibold mt-4 mb-2">3. Dominez</h3>
+          <p class="text-gray-400 text-sm">
+            Si ta performance est un record, tes points sont ajoutés. Grimpe au classement général !
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="py-24 px-6 bg-[#0b0614] border-t border-white/10">
     <div class="max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
       <div>
-        <h2 class="text-3xl font-bold mb-4">Classements en temps réel</h2>
+        <h2 class="text-3xl font-bold mb-4">Classement Général</h2>
         <p class="text-gray-400 mb-6">
-          Valide ta performance en vidéo, gagne des points et vois immédiatement
-          ta position mondiale.<br />
-          Niveaux de <strong>Fer</strong> à
-          <strong>Grand&nbsp;Master</strong>.
+          Seuls les meilleurs athlètes atteignent le sommet. 
+          Voici le Top 3 actuel du classement général.
         </p>
         <a
           href="/leaderboard"
           data-link
           class="inline-flex items-center gap-2 text-pink-400 font-semibold hover:underline"
         >
-          Voir le leaderboard&nbsp;→
+          Voir le classement complet&nbsp;→
         </a>
       </div>
 
-      <div
-        class="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md"
-      >
-        <p class="text-center text-gray-400">Extrait en direct</p>
-        <div id="home-leaderboard" class="mt-4 text-sm text-gray-300"></div>
-      </div>
+      <div id="home-leaderboard-preview"
+           class="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md space-y-3">
+        </div>
     </div>
   </section>
 
-    <!-- RANKS --------------------------------------------------- -->
-<section class="py-24 px-6 bg-[#0b0614] border-t border-white/10">
-  <div class="max-w-6xl mx-auto text-center mb-12">
-    <h2 class="text-3xl font-bold mb-4">Système de Rangs</h2>
-    <p class="text-gray-400 max-w-2xl mx-auto">
-      Chaque effort compte. Gagne des points, monte en grade et affiche fièrement ton rang.
-    </p>
-  </div>
-
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-6xl mx-auto">
-    ${[
-      { name: 'Fer', img: 'iron.png' },
-      { name: 'Bronze', img: 'bronze.png' },
-      { name: 'Argent', img: 'silver.png' },
-      { name: 'Or', img: 'gold.png' },
-      { name: 'Platine', img: 'platinium.png' },
-      { name: 'Émeraude', img: 'emeraude.png' },
-      { name: 'Diamant', img: 'diamond.png' },
-      { name: 'Maître', img: 'master.png' },
-      { name: 'Grand Maître', img: 'grandmaster.png' },
-      { name: 'Challenger', img: 'challenger.png' },
-    ].map(
-      (rank) => `
-      <div class="flex flex-col items-center">
-        <img src="/static/images/ranks/${rank.img}" alt="${rank.name}" class="w-24 h-24 object-contain mb-2" />
-        <p class="text-sm text-gray-300">${rank.name}</p>
-      </div>
-    `
-    ).join('')}
-  </div>
-</section>
-
-  <!-- MARKETPLACE ------------------------------------------- -->
-  <section class="py-24 px-6 bg-[#0b0614]">
-    <div class="max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
-      <div class="order-2 lg:order-1">
-        <h2 class="text-3xl font-bold mb-4">Marketplace de programmes</h2>
-        <p class="text-gray-400 mb-6">
-          Achète ou vends des routines premium. Les coachs fixent leur prix&nbsp;;
-          la communauté évalue.&nbsp;💸
-        </p>
-        <a
-          href="/programs"
-          data-link
-          class="inline-flex items-center gap-2 text-cyan-400 font-semibold hover:underline"
-        >
-          Découvrir les programmes&nbsp;→
-        </a>
-      </div>
-
-      <div
-        class="order-1 lg:order-2 bg-gradient-to-br from-purple-600/30 to-pink-500/10
-               p-8 rounded-2xl border border-white/10"
-      >
-        <p class="text-center text-gray-300">Mock-up cartes programme (à venir)</p>
-      </div>
-    </div>
-  </section>
-
-    <!-- REWARDS ------------------------------------------------ -->
   <section class="py-24 px-6 bg-[#0d0818] border-t border-white/10">
-    <div class="max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
-      <div>
-        <h2 class="text-3xl font-bold mb-4">Système de récompenses</h2>
-        <p class="text-gray-400 mb-6">
-          Gagne des <strong>DraftCoins</strong> en montant dans le classement&nbsp;:
-          chaque <strong>10 points = 1 coin</strong>. Utilise-les pour obtenir des
-          <span class="text-yellow-400 font-semibold">équipements exclusifs</span>,
-          des <span class="text-yellow-400 font-semibold">crédits boutique</span> ou même des <span class="text-yellow-400 font-semibold">boosts de rang</span>.
-        </p>
-        <p class="text-gray-500 italic mb-6">
-          Les coins sont réinitialisés à chaque nouvelle saison, mais tes stats restent visibles dans ton profil.
-        </p>
-        <a
-          href="/rewards"
-          data-link
-          class="inline-flex items-center gap-2 text-yellow-400 font-semibold hover:underline"
-        >
-          Voir les récompenses&nbsp;→
-        </a>
-      </div>
+    <div class="max-w-6xl mx-auto text-center mb-12">
+      <h2 class="text-3xl font-bold mb-4">Système de Rangs</h2>
+      <p class="text-gray-400 max-w-2xl mx-auto">
+        Chaque effort compte. Gagne des points, monte en grade et affiche fièrement ton rang.
+      </p>
+    </div>
 
-      <div class="flex justify-center lg:justify-end">
-        <img
-          src="/static/images/coin.png"
-          alt="Pièce DraftPrime"
-          class="w-40 h-40 md:w-52 md:h-52 object-contain"
-        />
-      </div>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-8 max-w-6xl mx-auto">
+      ${[
+        { name: 'Fer', img: 'iron.png' },
+        { name: 'Bronze', img: 'bronze.png' },
+        { name: 'Argent', img: 'silver.png' },
+        { name: 'Or', img: 'gold.png' },
+        { name: 'Platine', img: 'platinium.png' },
+        { name: 'Émeraude', img: 'emeraude.png' },
+        { name: 'Diamant', img: 'diamond.png' },
+        { name: 'Maître', img: 'master.png' },
+        { name: 'Grand Maître', img: 'grandmaster.png' },
+        { name: 'Challenger', img: 'challenger.png' },
+      ].map(
+        (rank) => `
+        <div class="flex flex-col items-center">
+          <img src="/static/images/ranks/${rank.img}" alt="${rank.name}" class="w-24 h-24 object-contain mb-2" />
+          <p class="text-sm text-gray-300">${rank.name}</p>
+        </div>
+      `
+      ).join('')}
     </div>
   </section>
 
-
-  <!-- FAQ ---------------------------------------------------- -->
-  <section class="py-24 px-6 bg-[#0b0614]">
-    <div class="max-w-4xl mx-auto">
-      <h2 class="text-3xl font-bold text-center mb-12">Foire aux questions</h2>
-      <div class="space-y-6 text-gray-300">
-        <details class="border border-white/10 rounded-lg p-4">
-          <summary class="font-semibold cursor-pointer">
-            Comment mes performances sont-elles validées&nbsp;?
-          </summary>
-          <p class="mt-2">
-            Tu uploades une vidéo de 2-3 minutes. Un admin vérifie la forme,
-            l’exécution et l’authenticité avant d’attribuer tes points.
-          </p>
-        </details>
-
-        <details class="border border-white/10 rounded-lg p-4">
-          <summary class="font-semibold cursor-pointer">
-            Puis-je vendre mon propre programme&nbsp;?
-          </summary>
-          <p class="mt-2">
-            Oui&nbsp;! Une fois ton profil coach approuvé, tu peux publier et
-            monétiser tes routines. Nous prenons une petite commission.
-          </p>
-        </details>
-
-        <details class="border border-white/10 rounded-lg p-4">
-          <summary class="font-semibold cursor-pointer">
-            Que deviennent mes points après chaque saison&nbsp;?
-          </summary>
-          <p class="mt-2">
-            Les compteurs publics repartent à zéro, mais ton historique reste
-            disponible dans ton espace personnel.
-          </p>
-        </details>
-      </div>
-    </div>
-  </section>
-
-  <!-- CTA FINAL --------------------------------------------- -->
-  <section class="py-24 px-6 bg-[#0d0818] border-t border-white/10 text-center">
+  <section class="py-24 px-6 bg-[#0b0614] border-t border-white/10 text-center">
     <h2 class="text-4xl font-extrabold mb-6">
       Prêt à marquer l’histoire&nbsp;?
     </h2>
@@ -211,4 +148,57 @@ export default function home () {
     </a>
   </section>
   `;
+}
+
+
+// ------------------------------------------------------------------
+// 2. Logique (appelée par le routeur après l'affichage)
+// ------------------------------------------------------------------
+export async function mount() {
+  const container = document.getElementById('home-leaderboard-preview');
+  if (!container) return;
+
+  container.innerHTML = '<p class="text-gray-400 text-center">Chargement du Top 3...</p>';
+
+  try {
+    // On appelle l'API pour le leaderboard (limité à 3)
+    const { list } = await api('/leaderboard?cat=general&metric=general&limit=3', null, 'GET');
+
+    if (!list || list.length === 0) {
+      container.innerHTML = '<p class="text-gray-400 text-center">Le classement est en cours de calcul. Revenez bientôt !</p>';
+      return;
+    }
+
+    // On construit le HTML pour le Top 3
+    container.innerHTML = list.map((user, i) => `
+      <a href="/user/${user.id}" data-link
+         class="flex items-center gap-4 p-3 rounded-lg hover:bg-white/10 ${i === 0 ? 'glow-user' : ''}">
+        
+        <div class="w-10 h-10 flex items-center justify-center rounded-lg font-bold text-sm
+            ${i === 0 ? 'bg-yellow-400 text-black' :
+              i === 1 ? 'bg-gray-300 text-black' :
+              i === 2 ? 'bg-orange-500' : ''}">
+          ${i + 1}
+        </div>
+        
+        <img 
+          src="${user.photoURL || '/static/images/ranks/rank.png'}" 
+          alt="${user.displayName}"
+          class="w-12 h-12 rounded-full object-cover"
+        />
+        <div class="flex-1">
+          <p class="font-semibold text-white">${user.displayName || 'Athlète'}</p>
+          <p class="text-xs text-gray-400">Rang ${user.rank ? rankFromPoints(user.points) : 'N/A'}</p>
+        </div>
+        
+        <div class="text-right">
+          <p class="font-semibold text-pink-400">${user.points.toLocaleString()} pts</p>
+        </div>
+      </a>
+    `).join('');
+
+  } catch (error) {
+    console.error("Erreur chargement leaderboard preview:", error);
+    container.innerHTML = '<p class="text-red-400 text-center">Impossible de charger le classement.</p>';
+  }
 }

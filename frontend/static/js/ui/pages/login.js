@@ -1,3 +1,6 @@
+/* static/js/ui/pages/login.js
+ * Page “Sign In” + logique de connexion
+ * ------------------------------------------------------------ */
 import { api } from '../../core/api.js'
 
 export default function loginPage () {
@@ -15,10 +18,12 @@ export default function loginPage () {
         <h2 class="text-xl font-semibold mb-6 text-center">Sign In</h2>
 
         <label class="block mb-2">Email</label>
-        <input name="email"    type="email"    class="w-full mb-4 px-3 py-2 rounded-lg bg-gray-800">
+        <input name="email"    type="email"
+               class="w-full mb-4 px-3 py-2 rounded-lg bg-gray-800" required>
 
         <label class="block mb-2">Password</label>
-        <input name="password" type="password" class="w-full mb-6 px-3 py-2 rounded-lg bg-gray-800">
+        <input name="password" type="password"
+               class="w-full mb-6 px-3 py-2 rounded-lg bg-gray-800" required>
 
         <button class="w-full py-2 rounded-lg bg-gradient-to-r from-pink-500 to-purple-600 font-semibold">
           Sign In
@@ -41,22 +46,22 @@ export function setupLogin () {
   form.addEventListener('submit', async e => {
     e.preventDefault()
 
-    const data = Object.fromEntries(new FormData(form))
+    const { email, password } = Object.fromEntries(new FormData(form))
 
     try {
-      const res = await api('/login', data, 'POST')   // Firebase REST
+      const res = await api('/login', { email, password }, 'POST')   // Firebase REST
 
       /* ➊ Stocke le token pour les appels protégés */
       localStorage.setItem('token',  res.idToken)
 
       /* ➋ Stocke l’UID pour la mise en surbrillance */
-      localStorage.setItem('userId', res.localId)      // ← ESSENTIEL
+      localStorage.setItem('userId', res.localId)
 
-      /* ➌ Redirige vers /profile */
-      history.pushState(null, '', '/profile')
+      /* ➌ Redirige directement vers le Dashboard */
+      history.pushState(null, '', '/profile/dashboard')
       window.dispatchEvent(new PopStateEvent('popstate'))
     } catch (err) {
-      alert('Échec de connexion – vérifie ton email / mot de passe.')
+      alert('Login failed – check your email / password.')
       console.error(err)
     }
   })

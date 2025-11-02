@@ -4,6 +4,16 @@
 // -----------------------------------------------------------------------------
 import { api } from '../../core/api.js'
 
+/*──────────────────────── 0. Helper rank → nom d’image ───────────────*/
+export function rankFromPoints (score, max = 10_000) {
+  /* calcule un index 0‑9 proportionnel au plafond `max` puis renvoie le slug */
+  const idx = Math.min(9, Math.floor((score / max) * 10))
+  return [
+    'iron', 'bronze', 'silver', 'gold', 'platinium',
+    'emeraude', 'diamond', 'master', 'grandmaster', 'challenger'
+  ][idx]
+}
+
 /*──────────────────────── 1. Mapping catégories / metrics ───────────────────*/
 export const categories = {
   general: { label: 'Général', sub: [{ value: 'general', label: 'Général' }] },
@@ -85,17 +95,20 @@ export default function leaderboardPage () {
   <!-- Tableau + bloc activité -->
   <div class="w-full max-w-6xl grid md:grid-cols-[1fr_340px] gap-10">
 
-    <!-- Tableau -->
-    <table class="w-full text-left backdrop-blur-md bg-white/5 border
-                  border-white/10 rounded-2xl overflow-hidden">
-      <thead class="uppercase text-xs text-gray-400 tracking-wider">
-        <tr class="border-b border-white/10">
-          <th class="py-4 pl-6">#</th><th>Athlète</th><th>Rang</th>
-          <th class="pr-6 text-right">Points</th>
-        </tr>
-      </thead>
-      <tbody id="leaderboard-body"></tbody>
-    </table>
+    <!-- Tableau | wrapper limité à 9 lignes visibles -->
+    <div id="lb-wrapper"
+           class="overflow-y-auto scrollbar-hide max-h-[530px]">
+        <table class="w-full text-left backdrop-blur-md bg-white/5 border
+                      border-white/10 rounded-2xl overflow-hidden">
+          <thead class="uppercase text-xs text-gray-400 tracking-wider">
+          <tr class="border-b border-white/10">
+            <th class="py-4 pl-6">#</th><th>Athlète</th><th>Rang</th>
+            <th class="pr-6 text-right">Points</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboard-body"></tbody>
+      </table>
+    </div>
 
     <!-- Activity mock -->
     <div class="relative">
@@ -207,8 +220,8 @@ export async function loadLeaderboard (cat='general', metric='general') {
     list.sort((a,b)=>b.points-a.points)
 
     tbody.innerHTML = list.map((u,i)=>`
-      <tr class="${u.id===myId
-                   ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 ring-1 ring-pink-400/60'
+       <tr data-id="${u.id}"
+          class="${u.id===myId ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 ring-1 ring-pink-400/60'
                    : 'group hover:bg-white/5'} border-b border-white/10">
 
         <td class="py-3 pl-6">
@@ -218,10 +231,23 @@ export async function loadLeaderboard (cat='general', metric='general') {
               i===2?'bg-orange-500':'bg-white/10'}">${i+1}</div>
         </td>
 
-        <td class="font-medium ${u.id===myId?'text-white':''}">
-          ${u.displayName || u.email || '—'}
-          ${u.id===myId?'<span class="ml-2 text-xs bg-pink-500 px-2 py-0.5 rounded-full">vous</span>':''}
-        </td>
+        <td class="font-medium">
+                    <a href="/user/${u.id}" data-link 
+               class="flex items-center gap-3 group-hover:text-white ${u.id===myId?'text-pink-400':''}">
+
+            <img 
+              src="${u.photoURL || '/static/images/ranks/rank.png'}" 
+              alt="${u.displayName}"
+              class="w-10 h-10 rounded-full object-cover"
+            />
+
+            <span class="hover:underline">
+              ${u.displayName || u.email || '—'}
+            </span>
+
+            ${u.id===myId?'<span class="ml-2 text-xs bg-pink-500 text-white px-2 py-0.5 rounded-full">vous</span>':''}
+          </a>
+        </td>
 
         <td>
           <img src="/static/images/ranks/${[
@@ -241,21 +267,30 @@ export async function loadLeaderboard (cat='general', metric='general') {
       `<tr><td colspan="4" class="p-6 text-center text-gray-400">
          Erreur de chargement</td></tr>`
   }
+
+  /* ── Auto-scroll vers ma ligne ─────────────────────────── */
+    const wrapper = document.getElementById('lb-wrapper')
+    const myRow   = tbody.querySelector(`[data-id="${myId}"]`)
+    if (wrapper && myRow) {
+      const offset = myRow.offsetTop
+                   - wrapper.clientHeight / 2
+                   + myRow.clientHeight / 2
+      wrapper.scrollTo({ top: Math.max(offset, 0), behavior: 'instant' })
+    } else {
+      wrapper?.scrollTo({ top: 0 })
+    }
 }
 
 /*──────────────────────── 6. Activity mock ────────────────────────────────*/
 export function loadActivity () {
   const box = document.getElementById('activity-feed')
   if (!box) return
+
+  /* Contenu d'aide concis – 4 points maximum pour rester lisible. */
   box.innerHTML = `
-    <p><span class="text-white font-medium">Coach&nbsp;Lucy</span>
-       posted a new <span class="text-pink-400 font-semibold">HIIT&nbsp;Plan</span></p>
-    <p><span class="text-white font-medium">Gayar</span>
-       hit <span class="text-pink-400 font-semibold">+50&nbsp;pts</span> on deadlifts</p>`
+    <p><strong class="text-white">1.</strong> Sélectionnez une <span class="text-pink-400 font-semibold">discipline</span> puis un <span class="text-pink-400 font-semibold">exercice</span> dans les menus.</p>
+    <p><strong class="text-white">2.</strong> Seuls les athlètes ayant au moins 1&nbsp;point apparaissent dans le tableau.</p>
+    <p><strong class="text-white">3.</strong> Les rangs vont de <span class="font-semibold">Fer</span> à <span class="font-semibold">Challenger</span></p>
+    <p><strong class="text-white">4.</strong> Vos propres lignes sont automatiquement surlignées.</p>`
 }
 
-/*──────────────────────── 7. Bootstrap DOM (si page chargée directement) ──*/
-document.addEventListener('DOMContentLoaded', () => {
-  initLeaderboardFilters()
-  loadActivity()
-})

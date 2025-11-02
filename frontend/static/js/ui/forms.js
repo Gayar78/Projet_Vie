@@ -1,5 +1,5 @@
 /* static/js/core/forms.js
- * Bind global forms & buttons
+ * Bind global forms & buttons – handlers communs (hors page /login)
  * ------------------------------------------------------------ */
 import { api } from '../core/api.js'
 
@@ -11,9 +11,15 @@ export function bindForms (path) {
 
     try {
       const d = await api('/login', { email, password })
-      localStorage.setItem('token', d.idToken)
-      history.pushState(null, '', '/profile')
-      dispatchEvent(new PopStateEvent('popstate'))
+
+      // Stocke immédiatement les infos pour que lʼUI puisse sʼafficher
+      localStorage.setItem('token',    d.idToken)           // accès API
+      localStorage.setItem('userId',   d.localId  || '')    // highlight leaderboard
+      localStorage.setItem('username', d.email    || '')    // montre dans la nav
+
+      // Redirige vers le dashboard
+      history.pushState(null, '', '/profile/dashboard')
+      window.dispatchEvent(new PopStateEvent('popstate'))
     } catch {
       alert('Login failed')
     }
@@ -29,41 +35,15 @@ export function bindForms (path) {
       return
     }
 
-    /* ne pas envoyer le champ confirm à l’API */
     try {
       await api('/register', { email, password })
       alert('Account created. Log in!')
+
+      // On redirige vers la page de connexion
       history.pushState(null, '', '/login')
-      dispatchEvent(new PopStateEvent('popstate'))
+      window.dispatchEvent(new PopStateEvent('popstate'))
     } catch {
       alert('Register failed')
     }
-  })
-
-  /* ------------------------------------ Save Display-Name  */
-  document.getElementById('save-username')?.addEventListener('click', async () => {
-    const inp = document.querySelector('[name="username"]')
-    const username = inp.value.trim()
-    if (!username) return alert('Enter a name')
-
-    try {
-      await api('/profile', { username }, 'POST')
-      alert('Name updated!')
-      location.reload()
-    } catch {
-      alert('Update failed')
-    }
-  })
-
-  /* ---------------------------- Connect socials (fake OAuth) */
-  document.querySelectorAll('[data-connect]').forEach(btn => {
-    btn.addEventListener('click', async e => {
-      const provider = e.currentTarget.dataset.connect
-      alert(`TODO: OAuth ${provider}`)
-      try {
-        await api('/profile', { [provider]: true }, 'POST')
-        location.reload()
-      } catch {}
-    })
   })
 }

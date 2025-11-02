@@ -2,3 +2,5 @@ fastapi
 uvicorn
 firebase-admin
 pydantic
+google-cloud-storage
+Pillow
