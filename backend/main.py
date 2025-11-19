@@ -6,7 +6,7 @@
 # -----------------------------------------------------------------------------
 from fastapi import FastAPI, HTTPException, Request, Depends, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import firebase_admin, json, requests
 from google.api_core import exceptions as gexc   # utile pour try/except
 import os, smtplib, tempfile, mimetypes
@@ -15,6 +15,7 @@ from firebase_admin import credentials, auth, firestore, storage  # Ajoute stora
 import time
 import io
 from PIL import Image
+import enum
 
 
 # ---------------------------------------------------------------------------
@@ -183,11 +184,23 @@ def rank_level(metric: str, pts: int | float) -> int | None:
     # rang = 1 si 0 ≤ pts < step, …, 10 si pts ≥ 9*step
     return min(10, int(pts // step) + 1)
 
-# ─── Schémas Pydantic ───────────────────────────────────────────────────
-class UserIn(BaseModel):
+# ─── Schémas Pydantic ────────────────
+
+# Un Enum pour valider le genre
+class GenderEnum(str, enum.Enum):
+    male = "M"
+    female = "F"
+
+# NOUVEAU : Un modèle spécifique pour l'inscription
+class UserRegisterIn(BaseModel):
     email: str
     password: str
+    gender: GenderEnum
 
+# NOUVEAU : Un modèle spécifique pour la connexion
+class UserLoginIn(BaseModel):
+    email: str
+    password: str
 
 class PerformanceIn(BaseModel):
     category: str
@@ -217,27 +230,41 @@ def get_admin_uid(uid: str = Depends(get_uid)):
         return uid
     except Exception as e:
         raise HTTPException(status_code=403, detail=f"Accès admin requis: {e}")
+
+async def get_optional_uid(request: Request) -> str | None:
+    """Tente de récupérer l'UID, mais renvoie None si l'utilisateur n'est pas connecté."""
+    token = request.headers.get("authorization")
+    if not token:
+        return None
+    try:
+        decoded = auth.verify_id_token(token)
+        return decoded.get("uid")
+    except Exception:
+        # Le token est invalide, expiré, ou manquant
+        return None
+    
 # --------------------------------------------------------------------------
 #   Register / Login
 # --------------------------------------------------------------------------
 @app.post("/register")
-async def register(u: UserIn):
+# On utilise le nouveau modèle UserRegisterIn
+async def register(u: UserRegisterIn):
     try:
         user = auth.create_user(email=u.email, password=u.password)
 
-        # profil minimal (plus de champ « rank »)
         db.collection("users").document(user.uid).set({
             "email": u.email,
             "displayName": "",
             "displayName_lowercase": "",
             "photoURL": "",
             "isPublic": False,
+            "gender": u.gender.value,
         })
 
-        # scores init
         batch = db.batch()
         for cat, metrics in CATEGORIES.items():
             data = {m: 0 for m in metrics}
+            data["gender"] = u.gender.value
             batch.set(db.collection("users").document(user.uid)
                              .collection("scores").document(cat), data)
         batch.commit()
@@ -245,9 +272,9 @@ async def register(u: UserIn):
     except Exception as e:
         raise HTTPException(400, f"Register failed: {e}")
 
-
 @app.post("/login")
-async def login(u: UserIn):
+# On utilise le nouveau modèle UserLoginIn
+async def login(u: UserLoginIn):
     url = ("https://identitytoolkit.googleapis.com/v1/"
            f"accounts:signInWithPassword?key={FIREBASE_KEY}")
     r = requests.post(url, json={
@@ -397,39 +424,6 @@ async def get_profile_activity(uid: str = Depends(get_uid)):
 
     return activities
 
-
-@app.get("/public_profile/{user_id}")
-async def get_public_profile(user_id: str):
-    user_ref = db.collection("users").document(user_id)
-    user_doc = user_ref.get()
-
-    if not user_doc.exists:
-        raise HTTPException(404, "Utilisateur non trouvé")
-
-    user_data = user_doc.to_dict()
-
-    # C'EST LA VÉRIFICATION CLÉ
-    if not user_data.get("isPublic", False):
-        raise HTTPException(403, "Ce profil est privé")
-
-    # 1. On récupère les scores de la sous-collection
-    scores_data = {}
-    scores_query = user_ref.collection("scores").stream()
-    for doc in scores_query:
-        scores_data[doc.id] = doc.to_dict()
-
-    # 2. On prépare la réponse publique (SANS EMAIL, SANS UID)
-    public_data = {
-        "displayName": user_data.get("displayName", "Athlète"),
-        "bio": user_data.get("bio"),
-        "instagram": user_data.get("instagram"),
-        "photoURL": user_data.get("photoURL"),
-        "points": scores_data.get("general", {}).get("general", 0),
-        "scores": scores_data, 
-    }
-    
-    return public_data
-
 # --------------------------------------------------------------------------
 #   Submit performance
 # --------------------------------------------------------------------------
@@ -467,45 +461,52 @@ async def submit_performance(p: PerformanceIn, uid: str = Depends(get_uid)):
 
 @app.get("/leaderboard")
 async def leaderboard(
+    gender: str = "all",
     cat: str = "general",
     metric: str = "general",
     limit: int = 100,
 ):
     """Renvoie le classement + rang (1‑10) pour la combinaison demandée."""
 
-    # 1) validation ------------------------------------------------------
-    if cat not in CATEGORIES or (
-        metric not in CATEGORIES[cat] and metric != "total"
-    ):
+    if cat not in CATEGORIES or (metric not in CATEGORIES[cat] and metric != "total"):
         raise HTTPException(400, "Invalid category/metric")
 
-    # 2) échappe le champ Firestore si jamais il contenait un tiret -------
     escape = lambda f: f if f.isidentifier() else f"`{f}`"
 
-    # 3) interroge collection_group triée sur <metric> -------------------
+    # On commence la construction de la requête
+    query = db.collection_group("scores")
+
+    # --- NOUVEAU : On ajoute le filtre de genre si nécessaire ---
+    if gender in ["M", "F"]:
+        query = query.where(filter=firestore.FieldFilter("gender", "==", gender))
+    
+    # On continue avec le tri et la limite
     docs = (
-        db.collection_group("scores")
+        query
         .order_by(escape(metric), direction=firestore.Query.DESCENDING)
-        .limit(limit * 2)  # sur‑échantillonne puis filtre
+        .limit(limit * 2)
         .stream()
     )
 
+    # ... (le reste de la fonction est INCHANGÉ) ...
     out = []
     for d in docs:
         if d.id != cat:
-            continue  # ne garde que la discipline requise
+            continue
 
         uid   = d.reference.parent.parent.id
         score = d.get(metric) or 0
         if score == 0:
-            continue  # masque ceux à 0 pt
+            continue
 
-        # 4) Choix du barème : total → barème de la discipline ;
-        #    sinon → barème "exercice" universel
         rank_metric = cat if metric in ('total', 'general') else 'exercice'
         rank = rank_level(rank_metric, score)
 
         prof = db.collection("users").document(uid).get().to_dict() or {}
+
+        # On s'assure de ne pas inclure des utilisateurs sans genre si le filtre est actif
+        if gender in ["M", "F"] and prof.get("gender") != gender:
+            continue
 
         out.append({
             "id":          uid,
@@ -521,7 +522,7 @@ async def leaderboard(
 
     return {
         "list":   out,
-        "catMax": cat_max_points(cat),  # garde pour le front si besoin
+        "catMax": cat_max_points(cat),
     }
 
 
@@ -626,8 +627,17 @@ async def contribution(
 #   Profil Public (Nouveau)
 #   Cet endpoint ne requiert PAS d'authentification
 # --------------------------------------------------------------------------
+# backend/main.py
+
+# backend/main.py
+
 @app.get("/public_profile/{user_id}")
-async def get_public_profile(user_id: str):
+async def get_public_profile(user_id: str, requester_uid: str | None = Depends(get_optional_uid)):
+    """
+    Renvoie les données d'un profil.
+    - Renvoie toutes les données si le profil est public ou si le demandeur est un ami.
+    - Renvoie des données partielles (nom, photo) si le profil est privé.
+    """
     user_ref = db.collection("users").document(user_id)
     user_doc = user_ref.get()
 
@@ -636,28 +646,48 @@ async def get_public_profile(user_id: str):
 
     user_data = user_doc.to_dict()
 
-    # C'EST LA VÉRIFICATION CLÉ
-    if not user_data.get("isPublic", False):
-        # On renvoie 404 (non trouvé) pour ne pas révéler que le profil existe mais est privé
-        raise HTTPException(404, "Profil non trouvé ou privé") 
+    # --- NOUVELLE LOGIQUE D'ACCÈS ---
+    has_full_access = False
+    is_public = user_data.get("isPublic", False)
 
-    # 1. On récupère les scores de la sous-collection
-    scores_data = {}
-    scores_query = user_ref.collection("scores").stream()
-    for doc in scores_query:
-        scores_data[doc.id] = doc.to_dict()
+    if is_public:
+        has_full_access = True
+    elif requester_uid:
+        if requester_uid == user_id:
+            # On ne devrait pas arriver ici via le routeur, mais c'est une sécurité
+            has_full_access = True
+        else:
+            # Vérifie si le demandeur est un ami accepté
+            friendship_ref = user_ref.collection("friends").document(requester_uid)
+            friendship_doc = friendship_ref.get()
+            if friendship_doc.exists and friendship_doc.to_dict().get("status") == "accepted":
+                has_full_access = True
 
-    # 2. On prépare la réponse publique (SANS EMAIL, SANS UID)
-    public_data = {
-        "displayName": user_data.get("displayName", "Athlète"),
-        "instagram": user_data.get("instagram"),
-        "bio": user_data.get("bio"),
-        "photoURL": user_data.get("photoURL"), # On ajoute la photo
-        "points": scores_data.get("general", {}).get("general", 0),
-        "scores": scores_data,  # <-- On inclut tous les scores détaillés
-    }
+    # --- PRÉPARATION DE LA RÉPONSE ---
+    if has_full_access:
+        # L'utilisateur a un accès complet, on renvoie tout
+        scores_data = {}
+        scores_query = user_ref.collection("scores").stream()
+        for doc in scores_query:
+            scores_data[doc.id] = doc.to_dict()
 
-    return public_data
+        return {
+            "is_private": False, # Important pour le frontend
+            "displayName": user_data.get("displayName", "Athlète"),
+            "instagram": user_data.get("instagram"),
+            "bio": user_data.get("bio"),
+            "photoURL": user_data.get("photoURL"),
+            "points": scores_data.get("general", {}).get("general", 0),
+            "scores": scores_data,
+        }
+    else:
+        # L'utilisateur a un accès limité (profil privé)
+        # On ne renvoie que le minimum d'informations
+        return {
+            "is_private": True, # Important pour le frontend
+            "displayName": user_data.get("displayName", "Athlète"),
+            "photoURL": user_data.get("photoURL"),
+        }
 
 # --------------------------------------------------------------------------
 #   Recherche d'utilisateurs (Nouveau)
@@ -667,31 +697,29 @@ async def search_users(term: str = ""):
     if not term:
         return []
 
-    # On nettoie le terme de recherche (en minuscules)
     search_term = term.lower()
+    first_letter = search_term[0]
 
-    # C'est la "magie" de Firestore pour faire une recherche "commence par"
-    # On cherche les noms qui commencent par le terme de recherche
-    # et qui sont publics
     users_ref = (
         db.collection("users")
-        .where(filter=firestore.FieldFilter("isPublic", "==", True))
+        # LA LIGNE .where("isPublic", "==", True) A ÉTÉ SUPPRIMÉE ICI
+        # La recherche inclut désormais les profils publics ET privés.
         .order_by("displayName_lowercase")
-        .start_at([search_term])
-        .end_at([search_term + "\uf8ff"])
-        .limit(10)
+        .start_at([first_letter])
+        .end_at([first_letter + "\uf8ff"])
+        .limit(50)
     ).stream()
 
     results = []
     for user in users_ref:
         data = user.to_dict()
         results.append({
-            "id": user.id, # C'est le UID
+            "id": user.id,
             "displayName": data.get("displayName", "Athlète"),
+            "displayName_lowercase": data.get("displayName_lowercase", "")
         })
 
     return results
-
 # --------------------------------------------------------------------------
 #   Endpoints Admin (Nouveau)
 # --------------------------------------------------------------------------
@@ -877,3 +905,133 @@ async def reject_contribution(
     })
 
     return {"ok": True, "status": "rejected", "video_deleted": video_deleted}
+
+# --------------------------------------------------------------------------
+#   Système d'Amis (Nouveau)
+# --------------------------------------------------------------------------
+
+@app.get("/friends/status/{target_uid}")
+async def get_friendship_status(target_uid: str, uid: str = Depends(get_uid)):
+    """Vérifie la relation entre l'utilisateur connecté et un autre utilisateur."""
+    if uid == target_uid:
+        return {"status": "self"}
+
+    friend_ref = db.collection("users").document(uid).collection("friends").document(target_uid)
+    friend_doc = friend_ref.get()
+
+    if not friend_doc.exists:
+        return {"status": "not_friends"}
+    
+    return {"status": friend_doc.to_dict().get("status", "not_friends")}
+
+
+@firestore.transactional
+def send_friend_request_transaction(transaction, user_ref, target_ref):
+    # Marque la demande comme envoyée pour l'utilisateur actuel
+    transaction.set(user_ref, {"status": "pending_sent", "requested_at": firestore.SERVER_TIMESTAMP})
+    # Marque la demande comme reçue pour l'utilisateur cible
+    transaction.set(target_ref, {"status": "pending_received", "requested_at": firestore.SERVER_TIMESTAMP})
+
+@app.post("/friends/request/{target_uid}")
+async def send_friend_request(target_uid: str, uid: str = Depends(get_uid)):
+    """Envoyer une demande d'ami."""
+    transaction = db.transaction()
+    user_ref = db.collection("users").document(uid).collection("friends").document(target_uid)
+    target_ref = db.collection("users").document(target_uid).collection("friends").document(uid)
+    
+    send_friend_request_transaction(transaction, user_ref, target_ref)
+    return {"ok": True, "message": "Demande d'ami envoyée."}
+
+
+@firestore.transactional
+def remove_friendship_transaction(transaction, user_ref, target_ref):
+    transaction.delete(user_ref)
+    transaction.delete(target_ref)
+
+@app.post("/friends/cancel/{target_uid}")
+async def cancel_friend_request(target_uid: str, uid: str = Depends(get_uid)):
+    """Annuler une demande envoyée ou rejeter une demande reçue."""
+    transaction = db.transaction()
+    user_ref = db.collection("users").document(uid).collection("friends").document(target_uid)
+    target_ref = db.collection("users").document(target_uid).collection("friends").document(uid)
+
+    remove_friendship_transaction(transaction, user_ref, target_ref)
+    return {"ok": True, "message": "Demande annulée."}
+
+
+@firestore.transactional
+def accept_friend_request_transaction(transaction, user_ref, target_ref):
+    # Met à jour le statut des deux côtés à "accepted"
+    transaction.update(user_ref, {"status": "accepted", "friends_since": firestore.SERVER_TIMESTAMP})
+    transaction.update(target_ref, {"status": "accepted", "friends_since": firestore.SERVER_TIMESTAMP})
+
+@app.post("/friends/accept/{target_uid}")
+async def accept_friend_request(target_uid: str, uid: str = Depends(get_uid)):
+    """Accepter une demande d'ami."""
+    transaction = db.transaction()
+    user_ref = db.collection("users").document(uid).collection("friends").document(target_uid)
+    target_ref = db.collection("users").document(target_uid).collection("friends").document(uid)
+    
+    accept_friend_request_transaction(transaction, user_ref, target_ref)
+    return {"ok": True, "message": "Demande acceptée."}
+
+
+# On peut réutiliser /friends/cancel pour refuser, ou créer un alias
+@app.post("/friends/reject/{target_uid}")
+async def reject_friend_request(target_uid: str, uid: str = Depends(get_uid)):
+    """Rejeter une demande d'ami."""
+    return await cancel_friend_request(target_uid, uid) # La logique est la même
+
+
+# Et un alias pour retirer un ami
+@app.post("/friends/remove/{target_uid}")
+async def remove_friend(target_uid: str, uid: str = Depends(get_uid)):
+    """Retirer un ami."""
+    return await cancel_friend_request(target_uid, uid) # La logique est la même
+
+
+@app.get("/profile/friends")
+async def get_my_friends(uid: str = Depends(get_uid)):
+    """Récupère toutes les listes d'amis et de demandes."""
+    friends_ref = db.collection("users").document(uid).collection("friends")
+    
+    accepted = []
+    pending_sent = []
+    pending_received = []
+
+    friend_docs_list = list(friends_ref.stream())
+    user_ids_to_fetch = [doc.id for doc in friend_docs_list]
+
+    user_profiles = {}
+    if user_ids_to_fetch:
+        # --- CORRECTION FINALE ---
+        # On utilise la chaîne spéciale "__name__" pour cibler l'ID du document.
+        # C'est la méthode la plus compatible avec toutes les versions de firebase-admin.
+        users_query = db.collection("users").where("__name__", "in", user_ids_to_fetch)
+        
+        for user in users_query.stream():
+            user_profiles[user.id] = user.to_dict()
+
+    for doc in friend_docs_list:
+        status = doc.to_dict().get("status")
+        friend_id = doc.id
+        profile = user_profiles.get(friend_id, {})
+        
+        friend_data = {
+            "id": friend_id,
+            "displayName": profile.get("displayName", "Athlète Inconnu"),
+            "photoURL": profile.get("photoURL")
+        }
+
+        if status == "accepted":
+            accepted.append(friend_data)
+        elif status == "pending_sent":
+            pending_sent.append(friend_data)
+        elif status == "pending_received":
+            pending_received.append(friend_data)
+
+    return {
+        "accepted": accepted,
+        "pending_sent": pending_sent,
+        "pending_received": pending_received
+    }
