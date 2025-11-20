@@ -1,67 +1,49 @@
-// frontend/static/js/ui/pages/profile/activity.js
+/* frontend/static/js/ui/pages/profile/activity.js */
 import { api } from '../../../core/api.js';
 
-// Fonction pour formater la date
 function formatDate(timestamp) {
-    if (!timestamp || !timestamp.seconds) {
-        return 'Date inconnue';
-    }
-    // Multiplie par 1000 pour convertir les secondes en millisecondes
-    const date = new Date(timestamp.seconds * 1000); 
-    return date.toLocaleDateString('fr-FR', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric'
-    });
+    if (!timestamp || !timestamp.seconds) return 'Date inconnue';
+    return new Date(timestamp.seconds * 1000).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
-// ------------------------------------------------------------------
-// 1. Logique (appelée par le routeur après l'affichage)
-// ------------------------------------------------------------------
 export function mount(user) {
     const container = document.getElementById('activity-feed-container');
     if (!container) return;
 
     const loadActivities = async () => {
         try {
-            container.innerHTML = '<p class="text-gray-600">Chargement de votre historique...</p>';
-            
-            // 1. Appelle le nouvel endpoint (GET, pas de body)
+            container.innerHTML = '<p class="text-gray-500 animate-pulse">Chargement de votre historique...</p>';
             const activities = await api('/profile/activity', null, 'GET');
             
             if (activities.length === 0) {
-                container.innerHTML = '<p class="text-gray-600">Aucune performance validée pour le moment.</p>';
+                container.innerHTML = '<p class="text-gray-500 italic">Aucune activité récente.</p>';
                 return;
             }
 
-            // 2. Construit le HTML pour chaque activité
             container.innerHTML = activities.map(act => {
-                // Recrée la chaîne de performance
                 const perf = act.performance || {};
                 const perfHtml = [
-                    perf.weight ? `Poids: <strong>${perf.weight} kg</strong>` : '',
-                    perf.reps ? `Reps: <strong>${perf.reps}</strong>` : '',
-                    perf.distance ? `Distance: <strong>${perf.distance} km</strong>` : '',
-                    perf.time ? `Temps: <strong>${perf.time}</strong>` : '',
-                    perf.message ? `Message: <strong>${perf.message}</strong>` : ''
-                ].filter(Boolean).join(' / ');
+                    perf.weight ? `${perf.weight} kg` : '',
+                    perf.reps ? `${perf.reps} reps` : '',
+                    perf.distance ? `${perf.distance} km` : '',
+                    perf.time ? `${perf.time}` : ''
+                ].filter(Boolean).join(' • ');
                 
                 return `
-                <!-- MODIFIÉ : Carte "Glass" pour chaque activité -->
-                <div class="bg-white/70 backdrop-blur-lg border border-white/30 shadow-lg p-4 rounded-lg flex items-center gap-4">
-                    <div class="flex-shrink-0 w-16 h-16 bg-pink-500/20 rounded-lg flex flex-col items-center justify-center">
-                        <span class="text-2xl font-bold text-pink-600">+${act.points_awarded || 0}</span>
-                        <span class="text-xs text-pink-500">pts</span>
+                <div class="group bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 p-4 rounded-xl flex items-center gap-5 transition-all duration-200">
+                    <div class="flex-shrink-0 w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500/20 to-purple-600/20 flex flex-col items-center justify-center border border-white/5 group-hover:border-pink-500/30 transition-colors">
+                        <span class="text-xl font-bold text-pink-400">+${act.points_awarded || 0}</span>
                     </div>
-                    <!-- MODIFIÉ : Texte sombre -->
                     <div class="flex-1">
-                        <p class="font-semibold capitalize text-gray-900">${act.exercise.replace('_', ' ')}</p>
-                        <p class="text-sm text-gray-700">${perfHtml}</p>
-                        <p class="text-xs text-gray-500 mt-1">
-                            Validé le ${formatDate(act.approved_at)} 
-                            (Niv. ${act.level_equivalent || '?'})
-                            ${act.is_personal_record ? '<strong class="ml-2 text-yellow-600">★ Record Perso !</strong>' : ''}
-                        </p>
+                        <div class="flex justify-between items-start">
+                            <p class="font-bold text-gray-100 capitalize text-lg tracking-tight">${act.exercise.replace('_', ' ')}</p>
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-gray-600 bg-black/30 px-2 py-1 rounded">${formatDate(act.approved_at)}</span>
+                        </div>
+                        <div class="flex items-center gap-3 mt-1">
+                             <p class="text-sm text-gray-300 font-medium">${perfHtml}</p>
+                             ${act.is_personal_record ? '<span class="text-[10px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded border border-yellow-500/30 font-bold">NEW RECORD</span>' : ''}
+                        </div>
+                        ${act.level_equivalent ? `<p class="text-xs text-gray-500 mt-1">Niveau ${act.level_equivalent}</p>` : ''}
                     </div>
                 </div>
                 `;
@@ -69,31 +51,18 @@ export function mount(user) {
 
         } catch (error) {
             console.error(error);
-            // Si l'erreur est un problème d'index, on l'affiche
-            if (error.message && error.message.includes("index")) {
-                 container.innerHTML = `<p class="text-red-500">
-                    <strong>Erreur Backend :</strong> Un index Firestore est requis. 
-                    Veuillez vérifier votre console backend (Uvicorn), copier le lien de l'erreur,
-                    et le coller dans votre navigateur pour créer l'index manquant.
-                 </p>`;
-            } else {
-                container.innerHTML = `<p class="text-red-500">Erreur lors du chargement de l'activité.</p>`;
-            }
+            container.innerHTML = `<p class="text-red-400">Erreur de chargement.</p>`;
         }
     };
-
     loadActivities();
 }
 
-// ------------------------------------------------------------------
-// 2. Le HTML de la page
-// ------------------------------------------------------------------
 export default user => `
-  <!-- MODIFIÉ : Panneau "Glass" unifié -->
-  <div class="liquid-glass-card rounded-2xl p-6 space-y-6">
-    <h2 class="text-3xl font-bold text-gray-900">Mon Activité</h2>
-    <div id="activity-feed-container" class="space-y-4">
-      <!-- Le contenu sera chargé par la fonction mount() -->
-    </div>
+  <div class="liquid-glass-card rounded-2xl p-8 space-y-6 animate-spring-in"
+       data-tilt data-tilt-glare data-tilt-max-glare="0.05" data-tilt-scale="1.01">
+    <h2 class="text-2xl font-bold text-white flex items-center gap-3">
+        <span class="bg-purple-500 w-2 h-8 rounded-full"></span> Historique
+    </h2>
+    <div id="activity-feed-container" class="space-y-3"></div>
   </div>
 `;

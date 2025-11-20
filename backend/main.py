@@ -635,8 +635,6 @@ async def contribution(
 async def get_public_profile(user_id: str, requester_uid: str | None = Depends(get_optional_uid)):
     """
     Renvoie les données d'un profil.
-    - Renvoie toutes les données si le profil est public ou si le demandeur est un ami.
-    - Renvoie des données partielles (nom, photo) si le profil est privé.
     """
     user_ref = db.collection("users").document(user_id)
     user_doc = user_ref.get()
@@ -646,7 +644,7 @@ async def get_public_profile(user_id: str, requester_uid: str | None = Depends(g
 
     user_data = user_doc.to_dict()
 
-    # --- NOUVELLE LOGIQUE D'ACCÈS ---
+    # --- LOGIQUE D'ACCÈS ---
     has_full_access = False
     is_public = user_data.get("isPublic", False)
 
@@ -654,10 +652,8 @@ async def get_public_profile(user_id: str, requester_uid: str | None = Depends(g
         has_full_access = True
     elif requester_uid:
         if requester_uid == user_id:
-            # On ne devrait pas arriver ici via le routeur, mais c'est une sécurité
             has_full_access = True
         else:
-            # Vérifie si le demandeur est un ami accepté
             friendship_ref = user_ref.collection("friends").document(requester_uid)
             friendship_doc = friendship_ref.get()
             if friendship_doc.exists and friendship_doc.to_dict().get("status") == "accepted":
@@ -665,28 +661,28 @@ async def get_public_profile(user_id: str, requester_uid: str | None = Depends(g
 
     # --- PRÉPARATION DE LA RÉPONSE ---
     if has_full_access:
-        # L'utilisateur a un accès complet, on renvoie tout
         scores_data = {}
         scores_query = user_ref.collection("scores").stream()
         for doc in scores_query:
             scores_data[doc.id] = doc.to_dict()
 
         return {
-            "is_private": False, # Important pour le frontend
+            "is_private": False,
             "displayName": user_data.get("displayName", "Athlète"),
             "instagram": user_data.get("instagram"),
             "bio": user_data.get("bio"),
             "photoURL": user_data.get("photoURL"),
+            # AJOUT ICI : On renvoie le genre (M par défaut si vide)
+            "gender": user_data.get("gender", "M"), 
             "points": scores_data.get("general", {}).get("general", 0),
             "scores": scores_data,
         }
     else:
-        # L'utilisateur a un accès limité (profil privé)
-        # On ne renvoie que le minimum d'informations
         return {
-            "is_private": True, # Important pour le frontend
+            "is_private": True,
             "displayName": user_data.get("displayName", "Athlète"),
             "photoURL": user_data.get("photoURL"),
+            "gender": user_data.get("gender", "M"),
         }
 
 # --------------------------------------------------------------------------
