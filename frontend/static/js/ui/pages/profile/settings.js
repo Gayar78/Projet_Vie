@@ -2,6 +2,7 @@
 import { api } from '../../../core/api.js';
 
 export function mount(user) {
+    // 1. Toggle Public/Privé
     const toggle = document.getElementById('public-profile-toggle');
     const msg = document.getElementById('settings-msg');
     
@@ -20,28 +21,55 @@ export function mount(user) {
         });
     }
 
-    // Helper générique formulaire
+    // 2. Helper générique pour les formulaires simples
     const setupForm = (id, field, successMsg) => {
         const form = document.getElementById(id);
         if(!form) return;
         const feedback = form.querySelector('.status-msg');
+        
         form.addEventListener('submit', async e => {
             e.preventDefault();
             const val = form.querySelector('input, textarea').value;
-            feedback.textContent = '...';
+            
+            // Petit feedback visuel sur le bouton
+            const btn = form.querySelector('button');
+            const originalText = btn.textContent;
+            btn.textContent = '...';
+            btn.disabled = true;
+
             try {
                 const payload = {}; payload[field] = val;
                 await api('/profile', payload, 'POST');
-                feedback.textContent = successMsg; feedback.className = 'status-msg text-green-400 text-xs mt-2';
+                
+                // Mise à jour locale du nom si c'est le pseudo (pour la navbar)
+                if (field === 'displayName') {
+                    localStorage.setItem('displayName', val);
+                    // On pourrait forcer un rafraichissement de la nav ici si on voulait
+                }
+
+                feedback.textContent = successMsg; 
+                feedback.className = 'status-msg text-green-400 text-xs mt-2';
+                
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.disabled = false;
+                }, 500);
+
             } catch {
-                feedback.textContent = 'Erreur.'; feedback.className = 'status-msg text-red-400 text-xs mt-2';
+                feedback.textContent = 'Erreur.'; 
+                feedback.className = 'status-msg text-red-400 text-xs mt-2';
+                btn.textContent = originalText;
+                btn.disabled = false;
             }
         });
     };
 
+    // 3. Initialisation des formulaires
+    setupForm('pseudo-form', 'displayName', 'Pseudo modifié avec succès.');
     setupForm('insta-form', 'instagram', 'Instagram mis à jour.');
     setupForm('bio-form', 'bio', 'Biographie mise à jour.');
 
+    // 4. Gestion Avatar
     const avatarForm = document.getElementById('avatar-form');
     if (avatarForm) {
         const input = document.getElementById('avatar-input');
@@ -73,7 +101,22 @@ export default user => `
   <div class="liquid-glass-card rounded-2xl p-8 space-y-8 animate-spring-in"
        data-tilt data-tilt-glare data-tilt-max-glare="0.05" data-tilt-scale="1.01">
 
-    <!-- Public/Privé -->
+    <!-- 1. PSEUDO (Identité) -->
+    <form id="pseudo-form">
+        <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <span class="text-blue-400">👤</span> Identité
+        </h3>
+        <div class="flex gap-4">
+            <input name="displayName" type="text" placeholder="Votre Pseudo" value="${user.displayName || ''}"
+                class="flex-1 px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white focus:ring-blue-500 w-full font-bold" />
+            <button class="px-6 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold transition-colors">Sauver</button>
+        </div>
+        <p class="status-msg text-xs mt-2 h-4"></p>
+    </form>
+
+    <hr class="border-white/10" />
+
+    <!-- 2. Public/Privé -->
     <section>
         <h3 class="text-lg font-bold text-white mb-4">Confidentialité</h3>
         <div class="bg-white/5 p-5 rounded-xl border border-white/5 flex items-center justify-between">
@@ -91,7 +134,7 @@ export default user => `
 
     <hr class="border-white/10" />
 
-    <!-- Instagram -->
+    <!-- 3. Instagram -->
     <form id="insta-form">
         <h3 class="text-lg font-bold text-white mb-4">Social</h3>
         <div class="flex gap-4">
@@ -104,7 +147,7 @@ export default user => `
 
     <hr class="border-white/10" />
 
-    <!-- Bio -->
+    <!-- 4. Bio -->
     <form id="bio-form">
       <h3 class="text-lg font-bold text-white mb-4">Biographie</h3>
       <textarea id="bio-textarea" rows="3"
@@ -119,7 +162,7 @@ export default user => `
 
     <hr class="border-white/10" />
 
-    <!-- Avatar -->
+    <!-- 5. Avatar -->
     <form id="avatar-form">
       <h3 class="text-lg font-bold text-white mb-4">Avatar</h3>
       <div class="flex items-center gap-6">

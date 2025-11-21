@@ -1,41 +1,52 @@
-/* static/js/ui/pages/profile/contrib.js */
+/* frontend/static/js/ui/pages/profile/contrib.js */
 import { getIdToken } from '../../../auth.js';
 
+// CONFIGURATION DES INPUTS REQUIS PAR EXERCICE
 const PERFORMANCE_BAREME = {
+    // Muscu
     "bench": { "inputs": ["weight", "reps"] },
+    "overhead_press": { "inputs": ["weight", "reps"] },
+    "dumbbell_press": { "inputs": ["weight", "reps"] },
     "squat": { "inputs": ["weight", "reps"] },
     "deadlift": { "inputs": ["weight", "reps"] },
-    "overhead_press": { "inputs": ["weight", "reps"] },
-    "vertical_row": { "inputs": ["weight", "reps"] },
+    "pull_vertical": { "inputs": ["weight", "reps"] },
+    "pull_horizontal": { "inputs": ["weight", "reps"] },
+    "curls": { "inputs": ["weight", "reps"] },
+
+    // Street
     "weighted_pullup": { "inputs": ["weight", "reps"] },
     "weighted_dip": { "inputs": ["weight", "reps"] },
     "front_lever": { "inputs": ["time"] },
     "full_planche": { "inputs": ["time"] },
     "human_flag": { "inputs": ["time"] },
+
+    // Cardio
     "run": { "inputs": ["distance", "time"] },
     "bike": { "inputs": ["distance", "time"] },
-    "rope": { "inputs": ["reps"] },
+    "rope": { "inputs": ["reps", "time"] }, // Rope demande le nombre de sauts ET le temps pour calculer la cadence
+
     "default": { "inputs": ["message"] }
 };
 
 const CATEGORIES = {
   muscu: {
-    label: 'Muscu',
+    label: 'Musculation',
     sub: {
-      bench: 'Développé couché', squat: 'Squat', deadlift: 'Soulevé de terre',
-      weighted_pullup: 'Tractions lestées', overhead_press: 'Développé militaire', vertical_row: 'Rowing vertical'
+      bench: 'Développé Couché', overhead_press: 'Développé Militaire', dumbbell_press: 'Développé Haltères',
+      squat: 'Squat', deadlift: 'Soulevé de Terre',
+      pull_vertical: 'Tirage Vertical', pull_horizontal: 'Tirage Horizontal', curls: 'Curls'
     },
   },
   street: {
-    label: 'Street Work Out',
+    label: 'Street Workout',
     sub: {
-      weighted_pullup: 'Tractions lestées', weighted_dip: 'Dips lestés',
+      weighted_pullup: 'Traction Lestée', weighted_dip: 'Dips Lestés',
       front_lever: 'Front Lever', full_planche: 'Full Planche', human_flag: 'Human Flag'
     },
   },
   cardio: {
     label: 'Cardio',
-    sub: { run: 'Course', bike: 'Vélo', rope: 'Corde à sauter' },
+    sub: { run: 'Course à pied', bike: 'Vélo', rope: 'Corde à sauter' },
   },
 };
 
@@ -55,98 +66,45 @@ export default function contribPage () {
       NOUVELLE <span class="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500">PERF</span>
     </h1>
 
-    <!-- Filtres Pills -->
     <div class="flex flex-wrap justify-center gap-4 mb-10 relative z-20">
       ${['cat','met'].map(t=>`
         <div id="${t}-dd" class="relative group">
-          <button id="${t}-btn" type="button"
-                  class="flex items-center gap-3 pl-6 pr-5 py-3 rounded-full
-                         bg-black/30 border border-white/10 hover:border-pink-500/50
-                         backdrop-blur-md shadow-lg transition-all duration-300
-                         group-hover:shadow-pink-500/20">
-            <span id="${t}-label" class="font-bold text-sm uppercase tracking-wider text-gray-200">
-              ${t==='cat' ? catLabel(firstCat) : subLabel(firstCat, firstMet)}
-            </span>
+          <button id="${t}-btn" type="button" class="flex items-center gap-3 pl-6 pr-5 py-3 rounded-full bg-black/30 border border-white/10 hover:border-pink-500/50 backdrop-blur-md shadow-lg transition-all duration-300 group-hover:shadow-pink-500/20">
+            <span id="${t}-label" class="font-bold text-sm uppercase tracking-wider text-gray-200">${t==='cat' ? catLabel(firstCat) : subLabel(firstCat, firstMet)}</span>
             <svg class="w-4 h-4 text-pink-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.08l3.71-3.85a.75.75 0 111.08 1.04l-4.24 4.4a.75.75 0 01-1.08 0l-4.24-4.4a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
           </button>
-          <div id="${t}-menu"
-               class="absolute left-0 mt-3 w-60 origin-top-left rounded-xl
-                      bg-[#0a0a0a]/95 backdrop-blur-xl border border-white/10 
-                      shadow-2xl shadow-black/50 
-                      opacity-0 scale-95 pointer-events-none transition-all duration-200 z-50 overflow-hidden">
-          </div>
+          <div id="${t}-menu" class="absolute left-0 mt-3 w-60 origin-top-left rounded-xl bg-[#0a0a0a]/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50 opacity-0 scale-95 pointer-events-none transition-all duration-200 z-50 overflow-hidden max-h-80 overflow-y-auto"></div>
         </div>`).join('')}
     </div>
 
-    <form id="contrib-form"
-          class="space-y-6 max-w-xl w-full liquid-glass-card p-8 rounded-2xl border-t border-white/10"
-          data-tilt data-tilt-glare data-tilt-max-glare="0.05" data-tilt-scale="1.01">
+    <form id="contrib-form" class="space-y-6 max-w-xl w-full liquid-glass-card p-8 rounded-2xl border-t border-white/10" data-tilt data-tilt-glare data-tilt-max-glare="0.05" data-tilt-scale="1.01">
 
       <label class="block">
         <span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Vidéo de preuve</span>
-        <input type="file" id="file-input" accept="video/*" 
-               class="mt-3 block w-full text-sm text-gray-400
-                      file:mr-4 file:py-2 file:px-4
-                      file:rounded-full file:border-0
-                      file:text-sm file:font-bold
-                      file:bg-pink-600 file:text-white
-                      hover:file:bg-pink-500 cursor-pointer" required>
+        <input type="file" id="file-input" accept="video/*" class="mt-3 block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-pink-600 file:text-white hover:file:bg-pink-500 cursor-pointer" required>
       </label>
 
-      <!-- Inputs dynamiques (Styled via utilities.css) -->
-      <label class="block hidden" id="form-group-weight">
-        <span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Poids (kg)</span>
-        <input type="number" step="0.5" id="input-weight" placeholder="0.0" class="mt-2 w-full px-4 py-3 rounded-lg">
-      </label>
-
-      <label class="block hidden" id="form-group-reps">
-        <span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Répétitions</span>
-        <input type="number" id="input-reps" placeholder="0" class="mt-2 w-full px-4 py-3 rounded-lg">
-      </label>
-
-      <label class="block hidden" id="form-group-distance">
-        <span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Distance (km)</span>
-        <input type="number" step="0.1" id="input-distance" placeholder="0.0" class="mt-2 w-full px-4 py-3 rounded-lg">
-      </label>
-
-      <label class="block hidden" id="form-group-time">
-        <span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Temps (MM:SS)</span>
-        <input type="text" id="input-time" placeholder="00:00" class="mt-2 w-full px-4 py-3 rounded-lg">
-      </label>
-
-      <label class="block hidden" id="form-group-message">
-        <span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Détails</span>
-        <textarea id="input-message" rows="3" class="mt-2 w-full px-4 py-3 rounded-lg"></textarea>
-      </label>
+      <label class="block hidden" id="form-group-weight"><span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Poids (kg)</span><input type="number" step="0.5" id="input-weight" placeholder="0.0" class="mt-2 w-full px-4 py-3 rounded-lg"></label>
+      <label class="block hidden" id="form-group-reps"><span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Répétitions</span><input type="number" id="input-reps" placeholder="0" class="mt-2 w-full px-4 py-3 rounded-lg"></label>
+      <label class="block hidden" id="form-group-distance"><span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Distance (km)</span><input type="number" step="0.01" id="input-distance" placeholder="0.0" class="mt-2 w-full px-4 py-3 rounded-lg"></label>
+      <label class="block hidden" id="form-group-time"><span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Temps (MM:SS)</span><input type="text" id="input-time" placeholder="00:00" class="mt-2 w-full px-4 py-3 rounded-lg"></label>
+      <label class="block hidden" id="form-group-message"><span class="font-semibold text-gray-300 text-sm uppercase tracking-wide">Détails</span><textarea id="input-message" rows="3" class="mt-2 w-full px-4 py-3 rounded-lg"></textarea></label>
 
       <div class="pt-4 border-t border-white/10">
         <span class="block font-semibold text-gray-300 text-sm mb-3">Diffusion publique ?</span>
         <div class="flex gap-6">
-            <label class="inline-flex items-center gap-2 cursor-pointer">
-              <input type="radio" name="consent" id="consent-yes" value="yes" required class="text-pink-500 focus:ring-pink-500 bg-black/50 border-white/20">
-              <span class="text-gray-300">Oui, je valide</span>
-            </label>
-            <label class="inline-flex items-center gap-2 cursor-pointer">
-              <input type="radio" name="consent" id="consent-no" value="no" class="text-pink-500 focus:ring-pink-500 bg-black/50 border-white/20">
-              <span class="text-gray-300">Non</span>
-            </label>
+            <label class="inline-flex items-center gap-2 cursor-pointer"><input type="radio" name="consent" id="consent-yes" value="yes" required class="text-pink-500 focus:ring-pink-500 bg-black/50 border-white/20"><span class="text-gray-300">Oui, je valide</span></label>
+            <label class="inline-flex items-center gap-2 cursor-pointer"><input type="radio" name="consent" id="consent-no" value="no" class="text-pink-500 focus:ring-pink-500 bg-black/50 border-white/20"><span class="text-gray-300">Non</span></label>
         </div>
       </div>
 
-      <button type="submit"
-              class="w-full py-3 rounded-lg bg-gradient-to-r from-pink-600 to-purple-600
-                     text-white font-bold text-lg tracking-wide shadow-lg shadow-pink-900/20
-                     hover:scale-[1.02] transition-transform duration-200 active:scale-95 mt-4">
-        Soumettre la performance
-      </button>
-
+      <button type="submit" class="w-full py-3 rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 text-white font-bold text-lg tracking-wide shadow-lg shadow-pink-900/20 hover:scale-[1.02] transition-transform duration-200 active:scale-95 mt-4">Soumettre la performance</button>
       <p id="status" class="text-center text-sm mt-2 font-medium h-5"></p>
     </form>
   </section>`;
 }
 
 export function mount () {
-  // ... (Logique identique à avant, pas de changement nécessaire ici) ...
   const catBtn = document.getElementById('cat-btn'), catLab = document.getElementById('cat-label'), catMenu = document.getElementById('cat-menu');
   const metBtn = document.getElementById('met-btn'), metLab = document.getElementById('met-label'), metMenu = document.getElementById('met-menu');
   if (!catBtn) return;

@@ -1,1033 +1,488 @@
-# backend/main.py  –  FastAPI backend (rang calculé à la volée)
-# -----------------------------------------------------------------------------
-#  users/{uid}                    → profil & méta
-#  users/{uid}/scores/{category}  → cardio, muscu, street, general
-#                                   champs = sous-cat + total
-# -----------------------------------------------------------------------------
+# backend/main.py
 from fastapi import FastAPI, HTTPException, Request, Depends, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-import firebase_admin, json, requests
-from google.api_core import exceptions as gexc   # utile pour try/except
-import os, smtplib, tempfile, mimetypes
-from email.message import EmailMessage
-from firebase_admin import credentials, auth, firestore, storage  # Ajoute storage
-import time
-import io
+from pydantic import BaseModel
+import firebase_admin, json, time, io, math
+from firebase_admin import credentials, auth, firestore, storage
 from PIL import Image
 import enum
+import requests  # <--- AJOUTÉ : Indispensable pour le login
 
+# ─── INITIALISATION FIREBASE ─────────────────────────────────────────────
+try:
+    cred = credentials.Certificate("firebase_service_account.json")
+    app_options = {'storageBucket': 'projetvie-212e4.firebasestorage.app'}
+    firebase_admin.initialize_app(cred, app_options)
+    db = firestore.client()
+    bucket = storage.bucket()
+except Exception as e:
+    print(f"⚠️ Warning Firebase Init: {e}")
 
-# ---------------------------------------------------------------------------
-#  Fonctions utilitaires
-# ---------------------------------------------------------------------------
-P_MAX = 10_000            # plafond global (tous exos niveau 10 cumulés)
-
-
-def total_exercises(categories: dict) -> int:
-    """Nombre total d’exercices toutes disciplines."""
-    return sum(len(v) for v in categories.values())
-
-
-def points_for_exercise(level: int, total_ex: int) -> int:
-    """
-    Barème universel : points pour un exercice selon le niveau 1-10
-    et le nombre total d’exercices.
-    """
-    if not 1 <= level <= 10:
-        raise ValueError("level must be 1…10")
-    unit = P_MAX / (10 * total_ex)          # pas de points d’un niveau
-    return int(level * unit)
-
-
-# ─── Firebase Admin ──────────────────────────────────────────────────────
-cred = credentials.Certificate("firebase_service_account.json")
-app_options = {'storageBucket': 'projetvie-212e4.firebasestorage.app'}
-firebase_admin.initialize_app(cred, app_options)
-db = firestore.client()
-bucket = storage.bucket()
-
-# ─── Web-apiKey (signInWithPassword) ─────────────────────────────────────
 with open("firebase_config.json") as f:
     FIREBASE_KEY = json.load(f)["apiKey"]
 
-# ─── FastAPI + CORS ──────────────────────────────────────────────────────
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
 
-# ─── Mapping cat/metrics (doit rester cohérent avec le front) ───────────
+# ─── CONSTANTES & CONFIGURATION ──────────────────────────────────────────
+
+GLOBAL_MAX_SCORE = 10_000 
+MAX_PTS_PER_EXO = 650 
+
 CATEGORIES = {
     "muscu": [
-        "bench", "squat", "deadlift", "overhead_press", "vertical_row"
+        "bench", "overhead_press", "dumbbell_press", 
+        "squat", "deadlift", 
+        "pull_vertical", "pull_horizontal", 
+        "curls"
     ],
     "street": [
-        "weighted_pullup", "weighted_dip", "front_lever",
-        "full_planche", "human_flag"
+        "weighted_pullup", "weighted_dip", 
+        "front_lever", "full_planche", "human_flag"
     ],
-    "cardio": ["run", "bike", "rope"],
-    "general": ["general"],
-}
-TOTAL_EX = total_exercises(CATEGORIES)
-
-# ─── NEW : bornes (0 → 714) par exercice ──────────────────────
-# Rang 1 = Fer, Rang 10 = Challenger
-RANK_INTERVALS = {
-    "exercice": [(0,71), (71,143), (143,214), (214,286), (286,357),
-                (357,429), (429,500), (500,571), (571,643), (643,714)],
-    "muscu": [(0,428),(428,857),(857,1286),(1286,1714),(1714,2143),
-              (2143,2571),(2571,3000),(3000,3428),(3428,3857),(3857,4280)],
-    "street":[(0,357),(357,714),(714,1071),(1071,1428),(1428,1785),
-              (1785,2142),(2142,2500),(2500,2857),(2857,3214),(3214,3570)],
-    "cardio":[(0,214),(214,429),(429,643),(643,857),(857,1071),
-              (1071,1286),(1286,1500),(1500,1714),(1714,1928),(1928,2140)],
-    "general":[(0,928),(928,1857),(1857,2786),(2786,3714),(3714,4643),
-               (4643,5571),(5571,6500),(6500,7428),(7428,8357),(8357,10000)],
+    "cardio": [
+        "run", "bike", "rope"
+    ],
+    "general": ["general"]
 }
 
-# --------------------------------------------------------------------------
-# NOUVEAU : LE BARÈME "MOTEUR DE CALCUL"
-# --------------------------------------------------------------------------
-# On définit le score max pour un exercice (Niveau 10)
-# (P_MAX / TOTAL_EX) = (10000 / 14) = 714.28
-MAX_EXERCISE_POINTS = 714
+# ─── 1. SYSTÈME DE RANGS (League of Legends EUW Style) ───
+def get_rank_label(points: int) -> str:
+    if points < 1500: return "Fer"
+    if points < 3500: return "Bronze"
+    if points < 5500: return "Argent"
+    if points < 7500: return "Or"
+    if points < 8700: return "Platine"
+    if points < 9300: return "Émeraude"
+    if points < 9700: return "Diamant"
+    if points < 9850: return "Maître"
+    if points < 9950: return "Grand Maître"
+    return "Challenger"
 
-# Formule 1-Rep Max (Epley)
-def calculate_1rm(weight, reps):
-    if reps == 1:
+# ─── 2. CALIBRAGE DES EXERCICES (STANDARDS ELITE) ───
+STANDARDS = {
+    "bench":           {"M": 140, "F": 75},
+    "overhead_press":  {"M": 90,  "F": 50},
+    "dumbbell_press":  {"M": 50,  "F": 28},
+    "squat":           {"M": 180, "F": 110},
+    "deadlift":        {"M": 220, "F": 130},
+    "pull_vertical":   {"M": 110, "F": 65},
+    "pull_horizontal": {"M": 100, "F": 60},
+    "curls":           {"M": 60,  "F": 35},
+    "weighted_pullup": {"M": 60,  "F": 25},
+    "weighted_dip":    {"M": 80,  "F": 35},
+    "front_lever":     {"M": 30, "F": 15},    
+    "full_planche":    {"M": 15, "F": 5},
+    "human_flag":      {"M": 20, "F": 10},
+    "run":             {"M": 18.0, "F": 15.0},
+    "bike":            {"M": 35.0, "F": 28.0},
+    "rope":            {"M": 120,  "F": 120},
+}
+
+# ─── 3. MOTEUR DE CALCUL ───
+
+def calculate_1rm(weight: float, reps: int) -> float:
+    effective_reps = min(reps, 12)
+    if effective_reps <= 1:
         return weight
-    if reps < 1 or weight <= 0:
-        return 0
-    return weight * (1 + (reps / 30))
+    return weight * (1 + effective_reps / 30)
 
-# Formule de points (plus c'est haut, mieux c'est)
-# ex: Poids, Répétitions
-def calculate_points_linear(perf, min_perf, max_perf):
-    if perf <= min_perf:
-        return 0
-    if perf >= max_perf:
-        return MAX_EXERCISE_POINTS
+def apply_difficulty_curve(ratio: float) -> int:
+    if ratio < 0: ratio = 0
+    score = (ratio ** 1.8) * MAX_PTS_PER_EXO
+    return int(min(score, MAX_PTS_PER_EXO * 1.5))
+
+def calculate_score_muscu(exercise, gender, weight, reps):
+    std = STANDARDS.get(exercise, {}).get(gender, 100)
+    one_rm = calculate_1rm(weight, reps)
+    ratio = one_rm / std
+    return apply_difficulty_curve(ratio), one_rm
+
+def calculate_score_static(exercise, gender, time_sec):
+    if time_sec < 5: return 0, 0
+    std = STANDARDS.get(exercise, {}).get(gender, 30)
+    effective_time = min(time_sec, 60)
+    ratio = effective_time / std
+    return apply_difficulty_curve(ratio), effective_time
+
+def calculate_score_cardio(exercise, gender, distance, time_str, reps=0):
+    std_speed = STANDARDS.get(exercise, {}).get(gender, 15)
     
-    # Interpolation linéaire
-    points = ((perf - min_perf) / (max_perf - min_perf)) * MAX_EXERCISE_POINTS
-    return int(points)
-
-# Formule de points (plus c'est bas, mieux c'est)
-# ex: Temps de course
-def calculate_points_inverted(perf_time, min_time, max_time):
-    if perf_time >= min_time: # Trop lent
-        return 0
-    if perf_time <= max_time: # Record du monde
-        return MAX_EXERCISE_POINTS
-    
-    # Interpolation linéaire (inversée)
-    points = ((min_time - perf_time) / (min_time - max_time)) * MAX_EXERCISE_POINTS
-    return int(points)
-
-# Conversion "MM:SS" ou "SSs" en secondes
-def parse_time_to_seconds(time_str):
-    if "s" in time_str:
-        return int(time_str.replace("s", ""))
-    elif ":" in time_str:
-        parts = time_str.split(":")
-        minutes = int(parts[0])
-        seconds = int(parts[1])
-        return (minutes * 60) + seconds
-    return int(time_str) # On suppose que c'est déjà en secondes
-
-PERFORMANCE_BAREME = {
-    # type: '1RM' -> min/max se base sur le 1RM calculé
-    # type: 'REPS' -> min/max se base sur le nombre de reps
-    # type: 'TIME' -> min/max se base sur le temps en secondes
-    
-    # === MUSCU ===
-    "bench": { "type": "1RM", "inputs": ["weight", "reps"], "min_perf": 50, "max_perf": 140 },
-    "squat": { "type": "1RM", "inputs": ["weight", "reps"], "min_perf": 60, "max_perf": 180 },
-    "deadlift": { "type": "1RM", "inputs": ["weight", "reps"], "min_perf": 80, "max_perf": 215 },
-    "overhead_press": { "type": "1RM", "inputs": ["weight", "reps"], "min_perf": 30, "max_perf": 70 },
-    "vertical_row": { "type": "1RM", "inputs": ["weight", "reps"], "min_perf": 40, "max_perf": 110 },
-
-    # === STREET (Muscu) ===
-    "weighted_pullup": { "type": "1RM", "inputs": ["weight", "reps"], "min_perf": 0, "max_perf": 40 }, # Poids ajouté
-    "weighted_dip": { "type": "1RM", "inputs": ["weight", "reps"], "min_perf": 0, "max_perf": 60 }, # Poids ajouté
-
-    # === STREET (Statique) ===
-    "front_lever": { "type": "TIME", "inputs": ["time"], "min_perf": 1, "max_perf": 12 }, # Secondes
-    "full_planche": { "type": "TIME", "inputs": ["time"], "min_perf": 1, "max_perf": 6 }, # Secondes
-    "human_flag": { "type": "TIME", "inputs": ["time"], "min_perf": 1, "max_perf": 10 }, # Secondes
-    
-    # === CARDIO ===
-    "run": { "type": "TIME", "inputs": ["distance", "time"], "min_perf": 1800, "max_perf": 1200 }, # 30:00 -> 20:00 (pour 5km)
-    "bike": { "type": "TIME", "inputs": ["distance", "time"], "min_perf": 2700, "max_perf": 1770 }, # 45:00 -> 29:30 (pour 20km)
-    "rope": { "type": "REPS", "inputs": ["reps"], "min_perf": 5, "max_perf": 120 }, # Double Unders
-    
-    # --- Par défaut ---
-    "default": { "type": "REPS", "inputs": ["message"], "min_perf": 0, "max_perf": 0 }
-}
-
-def rank_level(metric: str, pts: int | float) -> int | None:
-    """Calcule un rang 1‒10 proportionnellement au plafond de points.
-
-    * metric == "exercice"  → plafond = P_MAX / TOTAL_EX  (un seul exo)
-    * metric dans CATEGORIES → plafond = cat_max_points(metric)
-    * sinon                  → None
-    """
-    if metric == "exercice":
-        max_pts = P_MAX / TOTAL_EX
-    elif metric in CATEGORIES:
-        max_pts = cat_max_points(metric)
+    duration_sec = 0
+    if ":" in str(time_str):
+        parts = str(time_str).split(":")
+        duration_sec = int(parts[0]) * 60 + int(parts[1])
     else:
-        return None
+        duration_sec = float(time_str)
 
-    step = max_pts / 10       # 10 intervalles égaux
-    # rang = 1 si 0 ≤ pts < step, …, 10 si pts ≥ 9*step
-    return min(10, int(pts // step) + 1)
+    if duration_sec <= 0: return 0, 0
 
-# ─── Schémas Pydantic ────────────────
+    perf_value = 0
+    if exercise == "rope":
+        perf_value = (reps / duration_sec) * 60
+    else:
+        hours = duration_sec / 3600
+        if hours > 0:
+            perf_value = distance / hours # km/h
 
-# Un Enum pour valider le genre
+    ratio = perf_value / std_speed
+    return apply_difficulty_curve(ratio), perf_value
+
+
+# ─── AUTH & UTILS ───
 class GenderEnum(str, enum.Enum):
     male = "M"
     female = "F"
 
-# NOUVEAU : Un modèle spécifique pour l'inscription
 class UserRegisterIn(BaseModel):
-    email: str
-    password: str
-    gender: GenderEnum
+    email: str; password: str; gender: GenderEnum
 
-# NOUVEAU : Un modèle spécifique pour la connexion
 class UserLoginIn(BaseModel):
-    email: str
-    password: str
-
-class PerformanceIn(BaseModel):
-    category: str
-    metric: str
-    level: int                # 1 … 10
-    description: str | None = None
-
-
-# ─── Auth helper ─────────────────────────────────────────────────────────
-def get_uid(request: Request):
-    token = request.headers.get("authorization")
-    decoded = auth.verify_id_token(token) if token else None
-    if not decoded:
-        raise HTTPException(401)
-    return decoded["uid"]
+    email: str; password: str
 
 ADMIN_EMAIL = "remi.thibault@outlook.fr" 
 
+def get_uid(request: Request):
+    token = request.headers.get("authorization")
+    if not token: raise HTTPException(401, "No token")
+    try: return auth.verify_id_token(token)["uid"]
+    except: raise HTTPException(401, "Invalid token")
+
 def get_admin_uid(uid: str = Depends(get_uid)):
-    """
-    Vérifie que l'UID authentifié correspond à l'email de l'admin.
-    """
-    try:
-        user = auth.get_user(uid)
-        if user.email != ADMIN_EMAIL:
-            raise HTTPException(status_code=403, detail="Accès admin requis")
-        return uid
-    except Exception as e:
-        raise HTTPException(status_code=403, detail=f"Accès admin requis: {e}")
+    u = auth.get_user(uid)
+    if u.email != ADMIN_EMAIL: raise HTTPException(403, "Admin only")
+    return uid
 
 async def get_optional_uid(request: Request) -> str | None:
-    """Tente de récupérer l'UID, mais renvoie None si l'utilisateur n'est pas connecté."""
     token = request.headers.get("authorization")
-    if not token:
-        return None
-    try:
-        decoded = auth.verify_id_token(token)
-        return decoded.get("uid")
-    except Exception:
-        # Le token est invalide, expiré, ou manquant
-        return None
-    
-# --------------------------------------------------------------------------
-#   Register / Login
-# --------------------------------------------------------------------------
+    if not token: return None
+    try: return auth.verify_id_token(token)["uid"]
+    except: return None
+
+
+# ─── ENDPOINTS AUTH ───
 @app.post("/register")
-# On utilise le nouveau modèle UserRegisterIn
 async def register(u: UserRegisterIn):
     try:
         user = auth.create_user(email=u.email, password=u.password)
-
         db.collection("users").document(user.uid).set({
-            "email": u.email,
-            "displayName": "",
-            "displayName_lowercase": "",
-            "photoURL": "",
-            "isPublic": False,
-            "gender": u.gender.value,
+            "email": u.email, "displayName": "", "displayName_lowercase": "",
+            "photoURL": "", "isPublic": False, "gender": u.gender.value
         })
-
         batch = db.batch()
-        for cat, metrics in CATEGORIES.items():
-            data = {m: 0 for m in metrics}
-            data["gender"] = u.gender.value
-            batch.set(db.collection("users").document(user.uid)
-                             .collection("scores").document(cat), data)
+        for cat in CATEGORIES:
+            if cat == "general": continue
+            batch.set(db.collection("users").document(user.uid).collection("scores").document(cat), 
+                     {m: 0 for m in CATEGORIES[cat]} | {"total": 0, "gender": u.gender.value})
         batch.commit()
         return {"uid": user.uid}
-    except Exception as e:
-        raise HTTPException(400, f"Register failed: {e}")
+    except Exception as e: raise HTTPException(400, f"Error: {e}")
 
 @app.post("/login")
-# On utilise le nouveau modèle UserLoginIn
 async def login(u: UserLoginIn):
+    # Utilisation de requests.post (Librairie Python) et non Request.post (FastAPI)
     url = ("https://identitytoolkit.googleapis.com/v1/"
            f"accounts:signInWithPassword?key={FIREBASE_KEY}")
+    
+    # CORRECTION ICI : requests.post
     r = requests.post(url, json={
         "email": u.email, "password": u.password,
         "returnSecureToken": True
     })
+    
     if r.status_code != 200:
+        print(f"Login Error: {r.text}") # Debug
         raise HTTPException(400, "Invalid credentials")
+        
     return r.json()
 
 
-# --------------------------------------------------------------------------
-#   Profile GET / POST
-# --------------------------------------------------------------------------
-# backend/main.py
-
+# ─── ENDPOINTS PROFILE ───
 @app.get("/profile")
 async def profile(uid: str = Depends(get_uid)):
-    user_ref = db.collection("users").document(uid)
-    doc = user_ref.get()
+    doc = db.collection("users").document(uid).get()
     data = doc.to_dict() or {}
-
-    # NOUVELLE PARTIE : Récupérer tous les scores
-    scores_data = {}
-    scores_query = user_ref.collection("scores").stream()
-    for s_doc in scores_query:
-        scores_data[s_doc.id] = s_doc.to_dict()
-
-    # On remplace l'ancienne logique de points
-    data["points"] = scores_data.get("general", {}).get("general", 0)
-    data["scores"] = scores_data  # <-- ON AJOUTE LES SCORES DÉTAILLÉS
-    data["uid"] = uid
-
-    # On s'assure que isPublic est présent, même s'il n'est pas encore défini
-    if "isPublic" not in data:
-        data["isPublic"] = False
-
+    scores = {s.id: s.to_dict() for s in db.collection("users").document(uid).collection("scores").stream()}
+    data["scores"] = scores
+    data["points"] = scores.get("general", {}).get("general", 0)
+    data["rankLabel"] = get_rank_label(data["points"])
     return data
-
-
-# backend/main.py
 
 @app.post("/profile")
 async def update_profile(data: dict, uid: str = Depends(get_uid)):
-
-    # On prépare un dictionnaire pour les mises à jour
     updates = {}
+    
+    # --- AJOUT : Gestion du changement de pseudo ---
+    if "displayName" in data:
+        new_name = data["displayName"].strip()
+        if new_name:
+            updates["displayName"] = new_name
+            updates["displayName_lowercase"] = new_name.lower()
+    # -----------------------------------------------
 
-    # Logique Instagram
     if "instagram" in data:
-        handle = data["instagram"].lstrip("@").strip()
-        updates["instagram"] = handle
-
+        updates["instagram"] = data["instagram"].lstrip("@").strip()
+        # Si l'utilisateur n'avait pas de nom, on met l'insta par défaut (fallback)
         prof = db.collection("users").document(uid).get().to_dict() or {}
-        if not prof.get("displayName"):
-            # Si on met à jour le displayName, on met aussi à jour la version lowercase
-            updates["displayName"] = handle
-            updates["displayName_lowercase"] = handle.lower()
+        if not prof.get("displayName") and "displayName" not in updates:
+            updates["displayName"] = updates["instagram"]
+            updates["displayName_lowercase"] = updates["instagram"].lower()
+            
+    if "isPublic" in data: updates["isPublic"] = data["isPublic"]
+    if "bio" in data: updates["bio"] = data["bio"]
+    
+    if updates: db.collection("users").document(uid).set(updates, merge=True)
+    return {"ok": True}
 
-    # Logique Public/Privé
-    if "isPublic" in data and isinstance(data["isPublic"], bool):
-        updates["isPublic"] = data["isPublic"]
-
-    # S'il y a d'autres champs dans data (non gérés ici), on les ajoute
-    # par sécurité, mais on écrase les champs déjà gérés
-    data.update(updates)
-
-    if not data:
-         raise HTTPException(400, "Aucune donnée à mettre à jour")
-
-    # On applique toutes les mises à jour en une fois
-    db.collection("users").document(uid).set(data, merge=True)
-
-    return {"ok": True, "message": "Profil mis à jour."}
-
-
-# --------------------------------------------------------------------------
-#   Upload Avatar 
-# --------------------------------------------------------------------------
 @app.post("/upload_avatar")
-async def upload_avatar(
-    file: UploadFile = File(...),
-    uid: str = Depends(get_uid)
+async def upload_avatar(file: UploadFile = File(...), uid: str = Depends(get_uid)):
+    if not file.content_type.startswith("image/"): raise HTTPException(400, "Image only")
+    img = Image.open(io.BytesIO(await file.read()))
+    img.thumbnail((512, 512))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    blob = bucket.blob(f"avatars/{uid}.jpg")
+    blob.upload_from_string(buf.getvalue(), content_type="image/jpeg")
+    blob.make_public()
+    url = f"{blob.public_url}?t={int(time.time())}"
+    db.collection("users").document(uid).update({"photoURL": url})
+    return {"ok": True, "photoURL": url}
+
+
+# ─── ENDPOINTS CONTRIBUTION (User) ───
+@app.post("/contribution")
+async def contribution(
+    exercise: str = Form(...), category: str = Form(...), consent: bool = Form(False),
+    file: UploadFile = File(...), uid: str = Depends(get_uid),
+    weight: float = Form(None), reps: int = Form(None),
+    distance: float = Form(None), perf_time: str = Form(None), message: str = Form(None)
 ):
-    if not file.content_type or file.content_type.split("/")[0] != "image":
-        raise HTTPException(400, "Seuls les fichiers image sont autorisés")
+    user_doc = db.collection("users").document(uid).get().to_dict() or {}
+    
+    ext = file.filename.split('.')[-1]
+    blob = bucket.blob(f"contributions/{uid}/{category}_{exercise}_{int(time.time())}.{ext}")
+    blob.upload_from_file(file.file, content_type=file.content_type)
+    blob.make_public()
 
-    try:
-        # 1. Lire l'image en mémoire
-        contents = await file.read()
-
-        # 2. Compresser l'image avec Pillow
-        # On la redimensionne (max 512x512) et on la convertit en JPEG
-        img = Image.open(io.BytesIO(contents))
-        img.thumbnail((512, 512)) # Redimensionne en gardant l'aspect
-
-        # On sauvegarde l'image compressée dans un buffer en mémoire
-        output_buffer = io.BytesIO()
-        img.save(output_buffer, format="JPEG", quality=85)
-        output_contents = output_buffer.getvalue()
-
-        # 3. Uploader sur Firebase Storage
-        # On utilise un nom de fichier fixe pour écraser l'ancien avatar
-        destination_blob_name = f"avatars/{uid}.jpg"
-        blob = bucket.blob(destination_blob_name)
-
-        blob.upload_from_string(
-            output_contents,
-            content_type="image/jpeg"
-        )
-
-        # 4. Rendre public et obtenir l'URL
-        blob.make_public()
-        # On ajoute un "cache buster" pour forcer le navigateur
-        # à recharger la nouvelle image
-        public_url = f"{blob.public_url}?t={int(time.time())}" 
-
-        # 5. Mettre à jour le profil utilisateur
-        db.collection("users").document(uid).set({
-            "photoURL": public_url
-        }, merge=True)
-
-        return {"ok": True, "photoURL": public_url}
-
-    except Exception as e:
-        print(f"Erreur lors de l'upload d'avatar: {e}")
-        raise HTTPException(500, f"Upload échoué : {e}")
-
-# --------------------------------------------------------------------------
-#   Flux d'activité
-#   Renvoie l'historique des contributions approuvées pour l'utilisateur connecté
-# --------------------------------------------------------------------------
-@app.get("/profile/activity")
-async def get_profile_activity(uid: str = Depends(get_uid)):
-
-    activity_ref = (
-        db.collection("contributions")
-        .where(filter=firestore.FieldFilter("author_uid", "==", uid))
-        .where(filter=firestore.FieldFilter("status", "==", "approved"))
-        .order_by("approved_at", direction=firestore.Query.DESCENDING)
-        .limit(50) # On affiche les 50 dernières
-    ).stream()
-
-    activities = []
-    for doc in activity_ref:
-        activities.append(doc.to_dict())
-
-    return activities
-
-# --------------------------------------------------------------------------
-#   Submit performance
-# --------------------------------------------------------------------------
-@app.post("/performance")
-async def submit_performance(p: PerformanceIn, uid: str = Depends(get_uid)):
-    if p.category not in CATEGORIES or p.metric not in CATEGORIES[p.category]:
-        raise HTTPException(400, "Invalid category/metric")
-
-    pts = points_for_exercise(p.level, TOTAL_EX)
-
-    user_ref  = db.collection("users").document(uid)
-    score_ref = user_ref.collection("scores").document(p.category)
-    general_ref = user_ref.collection("scores").document("general")
-
-    inc = firestore.Increment(pts)
-
-    batch = db.batch()
-    batch.update(score_ref, {p.metric: inc, "total": inc} if p.metric != "total" else {p.metric: inc})
-    batch.update(general_ref, {"general": inc})
-    batch.commit()
-
-    user_ref.collection("performances").add({
-        "category": p.category,
-        "metric": p.metric,
-        "level": p.level,
-        "points": pts,
-        "description": p.description or "",
+    db.collection("contributions").add({
+        "status": "pending",
+        "author_uid": uid,
+        "author_name": user_doc.get("displayName", "Inconnu"),
+        "category": category,
+        "exercise": exercise,
+        "consent": consent,
+        "video_url": blob.public_url,
+        "storage_path": blob.name,
+        "submitted_at": firestore.SERVER_TIMESTAMP,
+        "performance": {
+            "weight": weight, "reps": reps, "distance": distance, "time": perf_time, "message": message
+        }
     })
     return {"ok": True}
 
 
-# --------------------------------------------------------------------------
-#   Leaderboard
-# --------------------------------------------------------------------------
+# ─── ENDPOINTS ADMIN (Validation & Calcul Score) ───
 
-@app.get("/leaderboard")
-async def leaderboard(
-    gender: str = "all",
-    cat: str = "general",
-    metric: str = "general",
-    limit: int = 100,
-):
-    """Renvoie le classement + rang (1‑10) pour la combinaison demandée."""
+@app.get("/admin/pending_contributions")
+async def get_pending_contributions(uid: str = Depends(get_admin_uid)):
+    docs = db.collection("contributions").where(filter=firestore.FieldFilter("status", "==", "pending")).stream()
+    return [{"id": d.id, **d.to_dict()} for d in docs]
 
-    if cat not in CATEGORIES or (metric not in CATEGORIES[cat] and metric != "total"):
-        raise HTTPException(400, "Invalid category/metric")
+@app.post("/admin/approve_contribution/{contrib_id}")
+async def approve_contribution(contrib_id: str, uid: str = Depends(get_admin_uid)):
+    ref = db.collection("contributions").document(contrib_id)
+    data = ref.get().to_dict()
+    if not data or data['status'] != 'pending': raise HTTPException(400, "Invalid contribution")
 
-    escape = lambda f: f if f.isidentifier() else f"`{f}`"
+    target_uid = data['author_uid']
+    cat = data['category']
+    exo = data['exercise']
+    perf = data['performance']
 
-    # On commence la construction de la requête
-    query = db.collection_group("scores")
+    user_ref = db.collection("users").document(target_uid)
+    user_data = user_ref.get().to_dict()
+    gender = user_data.get("gender", "M")
 
-    # --- NOUVEAU : On ajoute le filtre de genre si nécessaire ---
-    if gender in ["M", "F"]:
-        query = query.where(filter=firestore.FieldFilter("gender", "==", gender))
+    new_points = 0
+    perf_value = 0 
+
+    if cat == "muscu" or (cat == "street" and exo in ["weighted_pullup", "weighted_dip"]):
+        w = float(perf.get("weight") or 0)
+        r = int(perf.get("reps") or 0)
+        new_points, perf_value = calculate_score_muscu(exo, gender, w, r)
     
-    # On continue avec le tri et la limite
-    docs = (
-        query
-        .order_by(escape(metric), direction=firestore.Query.DESCENDING)
-        .limit(limit * 2)
-        .stream()
-    )
+    elif cat == "street": 
+        t_str = perf.get("time") or "0"
+        sec = 0
+        if ":" in str(t_str):
+            p = str(t_str).split(":")
+            sec = int(p[0])*60 + int(p[1])
+        else:
+            sec = int(t_str)
+        new_points, perf_value = calculate_score_static(exo, gender, sec)
 
-    # ... (le reste de la fonction est INCHANGÉ) ...
-    out = []
-    for d in docs:
-        if d.id != cat:
-            continue
+    elif cat == "cardio":
+        dist = float(perf.get("distance") or 0)
+        t_str = perf.get("time") or "0"
+        r = int(perf.get("reps") or 0)
+        new_points, perf_value = calculate_score_cardio(exo, gender, dist, t_str, r)
 
-        uid   = d.reference.parent.parent.id
-        score = d.get(metric) or 0
-        if score == 0:
-            continue
-
-        rank_metric = cat if metric in ('total', 'general') else 'exercice'
-        rank = rank_level(rank_metric, score)
-
-        prof = db.collection("users").document(uid).get().to_dict() or {}
-
-        # On s'assure de ne pas inclure des utilisateurs sans genre si le filtre est actif
-        if gender in ["M", "F"] and prof.get("gender") != gender:
-            continue
-
-        out.append({
-            "id":          uid,
-            "points":      score,
-            "rank":        rank,
-            "photoURL": prof.get("photoURL"),
-            "displayName": prof.get("displayName", ""),
-            "email":       prof.get("email", ""),
-        })
-
-        if len(out) >= limit:
-            break
-
-    return {
-        "list":   out,
-        "catMax": cat_max_points(cat),
-    }
-
-
-# ──────────── NEW helper (en haut du fichier si vous voulez) ──────────────
-def cat_max_points(cat: str) -> int:
-    """Plafond de points pour chaque discipline (rang Challenger)."""
-    if cat == "general":
-        return P_MAX
-    nb_ex = len(CATEGORIES[cat])          # nb de métriques de la discipline
-    return int(P_MAX / TOTAL_EX * nb_ex)  # même logique que le front
-
-# --------------------------------------------------------------------------
-#   Contributions
-# --------------------------------------------------------------------------
-@app.post("/contribution")
-async def contribution(
-    # Champs principaux
-    exercise: str = Form(...),
-    category: str = Form(...),
-    consent: bool = Form(False),
-    file: UploadFile = File(...),
-    uid: str = Depends(get_uid),
-
-    # Nouveaux champs de performance (optionnels)
-    weight: float = Form(None),
-    reps: int = Form(None),
-    distance: float = Form(None),
-    perf_time: str = Form(None),
-    message: str = Form(None), # L'ancien champ message est maintenant optionnel
-):
-    # 1) Validation (inchangée)
-    if category not in CATEGORIES or exercise not in CATEGORIES[category]:
-        raise HTTPException(400, "Catégorie / exercice invalide")
-
-    if not file.content_type or file.content_type.split("/")[0] != "video":
-        raise HTTPException(400, "Seuls les fichiers vidéo sont autorisés")
-
-    # 2) Récupérer le profil (inchangé)
-    user_doc = db.collection("users").document(uid).get().to_dict() or {}
-    author = user_doc.get("displayName") or user_doc.get("email", "inconnu")
-
-    try:
-        # 3) UPLOAD SUR FIREBASE STORAGE
-        # On crée un nom de fichier unique
-        file_extension = file.filename.split('.')[-1]
-        timestamp = int(time.time())
-        destination_blob_name = f"contributions/{uid}/{category}_{exercise}_{timestamp}.{file_extension}"
-
-        # On "pipe" le fichier directement vers le cloud
-        blob = bucket.blob(destination_blob_name)
+    score_doc_ref = user_ref.collection("scores").document(cat)
+    
+    @firestore.transactional
+    def update_if_pr(transaction, score_ref, general_ref, contrib_ref, new_pts):
+        snapshot = score_ref.get(transaction=transaction)
+        current_scores = snapshot.to_dict() if snapshot.exists else {}
         
-        # On utilise .upload_from_file() qui gère les gros fichiers
-        # On doit lire le fichier de FastAPI (await file.read()) et le mettre dans un objet "file-like"
-        contents = await file.read()
-        blob.upload_from_string(
-            contents,
-            content_type=file.content_type
-        )
+        old_pts = current_scores.get(exo, 0)
+        is_pr = new_pts > old_pts
+        points_diff = new_pts - old_pts if is_pr else 0
 
-        # Rendre le fichier publiquement lisible (si tu veux le voir facilement dans ton panel admin)
-        # Note: Pour plus de sécurité, on utiliserait des "signed URLs", mais c'est plus simple pour démarrer.
-        blob.make_public()
-        public_url = blob.public_url
+        if is_pr:
+            transaction.set(score_ref, {exo: new_pts}, merge=True)
+            transaction.set(score_ref, {"total": firestore.Increment(points_diff)}, merge=True)
+            transaction.set(general_ref, {"general": firestore.Increment(points_diff)}, merge=True)
 
-        # 4) ÉCRIRE DANS FIRESTORE (pour le panel admin)
-        # On crée un dictionnaire propre
-        contrib_data = {
-            "status": "pending",
-            "author_uid": uid,
-            "author_name": author,
-            "category": category,
-            "exercise": exercise,
-            "consent": consent,
-            "video_url": public_url,
-            "storage_path": destination_blob_name,
-            "submitted_at": firestore.SERVER_TIMESTAMP,
+        transaction.update(contrib_ref, {
+            "status": "approved",
+            "approved_at": firestore.SERVER_TIMESTAMP,
+            "approved_by": uid,
+            "points_awarded": new_pts,
+            "is_personal_record": is_pr,
+            "points_added_to_total": points_diff,
+            "calculated_performance": perf_value
+        })
+        return is_pr, points_diff
 
-            # On ajoute les champs de performance s'ils existent
-            "performance": {
-                "weight": weight,
-                "reps": reps,
-                "distance": distance,
-                "time": perf_time,
-                "message": message
-            }
-        }
+    general_ref = user_ref.collection("scores").document("general")
+    transaction = db.transaction()
+    is_pr, pts_added = update_if_pr(transaction, score_doc_ref, general_ref, ref, new_points)
 
-        # On enlève les clés "None" pour garder la base de données propre
-        contrib_data["performance"] = {
-            k: v for k, v in contrib_data["performance"].items() if v is not None
-        }
+    return {"ok": True, "is_pr": is_pr, "points": new_points, "added": pts_added}
 
-        db.collection("contributions").add(contrib_data)
+@app.post("/admin/reject_contribution/{contrib_id}")
+async def reject_contribution(contrib_id: str, uid: str = Depends(get_admin_uid)):
+    ref = db.collection("contributions").document(contrib_id)
+    data = ref.get().to_dict()
+    if data and data.get("storage_path"):
+        try: bucket.blob(data["storage_path"]).delete()
+        except: pass
+    ref.update({"status": "rejected", "rejected_by": uid})
+    return {"ok": True}
 
-        return {"ok": True, "message": "Contribution soumise pour validation."}
 
-    except Exception as e:
-        print(f"Erreur lors de l'upload: {e}")
-        raise HTTPException(500, f"Upload échoué : {e}")
-    
-# --------------------------------------------------------------------------
-#   Profil Public (Nouveau)
-#   Cet endpoint ne requiert PAS d'authentification
-# --------------------------------------------------------------------------
-# backend/main.py
-
-# backend/main.py
+# ─── ENDPOINTS PUBLIC / SOCIAL ───
 
 @app.get("/public_profile/{user_id}")
-async def get_public_profile(user_id: str, requester_uid: str | None = Depends(get_optional_uid)):
-    """
-    Renvoie les données d'un profil.
-    """
-    user_ref = db.collection("users").document(user_id)
-    user_doc = user_ref.get()
+async def public_profile(user_id: str, req_uid: str | None = Depends(get_optional_uid)):
+    u_doc = db.collection("users").document(user_id).get()
+    if not u_doc.exists: raise HTTPException(404, "User not found")
+    u_data = u_doc.to_dict()
 
-    if not user_doc.exists:
-        raise HTTPException(404, "Utilisateur non trouvé")
+    is_friend = False
+    if req_uid and req_uid != user_id:
+        f_doc = db.collection("users").document(user_id).collection("friends").document(req_uid).get()
+        if f_doc.exists and f_doc.to_dict().get("status") == "accepted": is_friend = True
 
-    user_data = user_doc.to_dict()
-
-    # --- LOGIQUE D'ACCÈS ---
-    has_full_access = False
-    is_public = user_data.get("isPublic", False)
-
-    if is_public:
-        has_full_access = True
-    elif requester_uid:
-        if requester_uid == user_id:
-            has_full_access = True
-        else:
-            friendship_ref = user_ref.collection("friends").document(requester_uid)
-            friendship_doc = friendship_ref.get()
-            if friendship_doc.exists and friendship_doc.to_dict().get("status") == "accepted":
-                has_full_access = True
-
-    # --- PRÉPARATION DE LA RÉPONSE ---
-    if has_full_access:
-        scores_data = {}
-        scores_query = user_ref.collection("scores").stream()
-        for doc in scores_query:
-            scores_data[doc.id] = doc.to_dict()
-
+    if u_data.get("isPublic") or is_friend or req_uid == user_id:
+        scores = {s.id: s.to_dict() for s in db.collection("users").document(user_id).collection("scores").stream()}
         return {
             "is_private": False,
-            "displayName": user_data.get("displayName", "Athlète"),
-            "instagram": user_data.get("instagram"),
-            "bio": user_data.get("bio"),
-            "photoURL": user_data.get("photoURL"),
-            # AJOUT ICI : On renvoie le genre (M par défaut si vide)
-            "gender": user_data.get("gender", "M"), 
-            "points": scores_data.get("general", {}).get("general", 0),
-            "scores": scores_data,
+            "displayName": u_data.get("displayName"),
+            "photoURL": u_data.get("photoURL"),
+            "bio": u_data.get("bio"),
+            "instagram": u_data.get("instagram"),
+            "gender": u_data.get("gender", "M"),
+            "scores": scores,
+            "points": scores.get("general", {}).get("general", 0)
         }
     else:
         return {
             "is_private": True,
-            "displayName": user_data.get("displayName", "Athlète"),
-            "photoURL": user_data.get("photoURL"),
-            "gender": user_data.get("gender", "M"),
+            "displayName": u_data.get("displayName"),
+            "photoURL": u_data.get("photoURL"),
+            "gender": u_data.get("gender", "M")
         }
 
-# --------------------------------------------------------------------------
-#   Recherche d'utilisateurs (Nouveau)
-# --------------------------------------------------------------------------
-@app.get("/search_users")
-async def search_users(term: str = ""):
-    if not term:
-        return []
+@app.get("/feed")
+async def get_feed():
+    docs = (db.collection("contributions")
+            .where(filter=firestore.FieldFilter("status", "==", "approved"))
+            .order_by("approved_at", direction=firestore.Query.DESCENDING)
+            .limit(20).stream())
+    return [d.to_dict() for d in docs]
 
-    search_term = term.lower()
-    first_letter = search_term[0]
-
-    users_ref = (
-        db.collection("users")
-        # LA LIGNE .where("isPublic", "==", True) A ÉTÉ SUPPRIMÉE ICI
-        # La recherche inclut désormais les profils publics ET privés.
-        .order_by("displayName_lowercase")
-        .start_at([first_letter])
-        .end_at([first_letter + "\uf8ff"])
-        .limit(50)
-    ).stream()
-
-    results = []
-    for user in users_ref:
-        data = user.to_dict()
-        results.append({
-            "id": user.id,
-            "displayName": data.get("displayName", "Athlète"),
-            "displayName_lowercase": data.get("displayName_lowercase", "")
-        })
-
-    return results
-# --------------------------------------------------------------------------
-#   Endpoints Admin (Nouveau)
-# --------------------------------------------------------------------------
-
-@app.get("/admin/pending_contributions")
-async def get_pending_contributions(admin_uid: str = Depends(get_admin_uid)):
-    """
-    Renvoie la liste de toutes les contributions en attente.
-    """
-    contrib_ref = (
-        db.collection("contributions")
-        .where(filter=firestore.FieldFilter("status", "==", "pending"))
-        .order_by("submitted_at", direction=firestore.Query.ASCENDING)
-        .limit(50) # On traite les 50 plus anciennes
-    ).stream()
-
-    pending_list = []
-    for contrib in contrib_ref:
-        data = contrib.to_dict()
-        data["id"] = contrib.id # On ajoute l'ID du document
-        pending_list.append(data)
-
-    return pending_list
-
-
-class AdminApproval(BaseModel):
-    level: int # L'admin doit fournir un niveau de 1 à 10
-
-@app.post("/admin/approve_contribution/{contrib_id}")
-async def approve_contribution(
-    contrib_id: str,
-    admin_uid: str = Depends(get_admin_uid)
-):
-    """
-    Approuve une contribution.
-    Calcule les points, vérifie si c'est un record personnel,
-    et met à jour les scores avec la *différence*.
-    """
-
-    contrib_ref = db.collection("contributions").document(contrib_id)
-    contrib_doc = contrib_ref.get()
-
-    if not contrib_doc.exists:
-        raise HTTPException(404, "Contribution non trouvée")
-
-    data = contrib_doc.to_dict()
-    if data.get("status") != "pending":
-        raise HTTPException(400, "Cette contribution a déjà été traitée")
-
-    # 1. Récupérer les infos
-    user_uid = data["author_uid"]
-    category = data["category"]
-    exercise = data["exercise"]
-    perf_data = data.get("performance", {})
-
-    # 2. Récupérer le barème
-    bareme = PERFORMANCE_BAREME.get(exercise, PERFORMANCE_BAREME["default"])
-
-    # 3. CALCULER LES POINTS pour la NOUVELLE performance
-    new_pts = 0
-    perf_value = 0
-
+@app.get("/leaderboard")
+async def leaderboard(gender: str="all", cat: str="general", metric: str="general", limit: int=50):
+    coll = db.collection_group("scores")
+    if gender in ["M", "F"]:
+        coll = coll.where(filter=firestore.FieldFilter("gender", "==", gender))
+    
     try:
-        if bareme["type"] == "1RM":
-            weight = float(perf_data.get("weight", 0))
-            reps = int(perf_data.get("reps", 0))
-            perf_value = calculate_1rm(weight, reps)
-            new_pts = calculate_points_linear(perf_value, bareme["min_perf"], bareme["max_perf"])
-        elif bareme["type"] == "TIME":
-            time_str = str(perf_data.get("time", "0"))
-            perf_value = parse_time_to_seconds(time_str)
-            new_pts = calculate_points_inverted(perf_value, bareme["min_perf"], bareme["max_perf"])
-        elif bareme["type"] == "REPS":
-            perf_value = int(perf_data.get("reps", 0))
-            new_pts = calculate_points_linear(perf_value, bareme["min_perf"], bareme["max_perf"])
+        docs = coll.order_by(metric, direction=firestore.Query.DESCENDING).limit(limit).stream()
     except Exception as e:
-        raise HTTPException(400, f"Erreur de calcul: {e}. Données: {perf_data}")
+        print(f"Index Error likely: {e}")
+        return {"list": []}
 
-    # 4. Calculer le niveau équivalent
-    level_equivalent = min(10, int(new_pts // (MAX_EXERCISE_POINTS / 10)) + 1)
-    if new_pts == 0: level_equivalent = 1
-
-    # 5. Préparer les références
-    user_ref = db.collection("users").document(user_uid)
-    score_ref = user_ref.collection("scores").document(category)
-    general_ref = user_ref.collection("scores").document("general")
-
-    # 6. Transaction pour vérifier le record
-    @firestore.transactional
-    def update_in_transaction(transaction, contrib_ref, score_ref, general_ref, exercise_name, new_pts):
-        # 6a. Lire le score ACTUEL de l'exercice
-        score_doc = score_ref.get(transaction=transaction)
-        current_exercise_score = 0
-        if score_doc.exists:
-            current_exercise_score = score_doc.to_dict().get(exercise_name, 0)
-
-        points_to_add = 0 # Points à AJOUTER au total
-        is_pr = False # Est-ce un record personnel ?
-
-        # 6b. VÉRIFIER SI C'EST UN NOUVEAU RECORD
-        if new_pts > current_exercise_score:
-            is_pr = True
-            points_to_add = new_pts - current_exercise_score # On ajoute que la différence
-            inc = firestore.Increment(points_to_add)
-
-            # Mettre à jour le score de l'exercice au nouveau record
-            transaction.set(score_ref, {exercise_name: new_pts}, merge=True)
-            # Incrémenter les totaux de la *différence*
-            transaction.set(score_ref, {"total": inc}, merge=True)
-            transaction.set(general_ref, {"general": inc}, merge=True)
-
-        # 6c. Mettre à jour la contribution (on la marque "approved" dans tous les cas)
-        transaction.update(contrib_ref, {
-            "status": "approved",
-            "approved_at": firestore.SERVER_TIMESTAMP,
-            "approved_by": admin_uid,
-            "level_equivalent": level_equivalent,
-            "points_awarded": new_pts, # Points de la perf (pas les points ajoutés)
-            "is_personal_record": is_pr,
-            "points_added_to_total": points_to_add,
-            "calculated_performance": perf_value
+    out = []
+    for d in docs:
+        if d.id != cat: continue
+        
+        score = d.get(metric) or 0
+        if score == 0: continue
+        
+        uid = d.reference.parent.parent.id
+        u_data = db.collection("users").document(uid).get().to_dict() or {}
+        
+        out.append({
+            "id": uid,
+            "points": score,
+            "displayName": u_data.get("displayName", "Athlète"),
+            "photoURL": u_data.get("photoURL"),
         })
-
-        return points_to_add, is_pr
-
-    transaction = db.transaction()
-    # On passe le nom de l'exercice ('bench') et les points calculés ('428')
-    points_added, is_pr = update_in_transaction(transaction, contrib_ref, score_ref, general_ref, exercise, new_pts)
-
-    return {
-        "ok": True, 
-        "points_awarded": new_pts, # Points de la performance
-        "points_added_to_total": points_added, # Points *réellement* ajoutés au total
-        "level_equivalent": level_equivalent, 
-        "is_personal_record": is_pr,
-        "user": user_uid
-    }
-
-
-# backend/main.py
-
-@app.post("/admin/reject_contribution/{contrib_id}")
-async def reject_contribution(
-    contrib_id: str, 
-    admin_uid: str = Depends(get_admin_uid)
-):
-    """
-    Rejette une contribution ET supprime la vidéo associée.
-    """
-    contrib_ref = db.collection("contributions").document(contrib_id)
-    contrib_doc = contrib_ref.get()
-
-    if not contrib_doc.exists:
-         raise HTTPException(404, "Contribution non trouvée")
-
-    data = contrib_doc.to_dict()
-
-    if data.get("status") != "pending":
-        raise HTTPException(400, "Cette contribution a déjà été traitée")
-
-    video_deleted = False
-    try:
-        # --- NOUVELLE PARTIE : Suppression de la vidéo ---
-        storage_path = data.get("storage_path")
-        if storage_path:
-            blob = bucket.blob(storage_path) # "bucket" est ta variable globale de Storage
-            if blob.exists():
-                blob.delete()
-                video_deleted = True
-            else:
-                # Le fichier n'existe déjà plus, c'est pas grave
-                print(f"Avertissement: Fichier {storage_path} non trouvé dans Storage, suppression ignorée.")
-                video_deleted = True # On considère que c'est "nettoyé"
-        # --- Fin de la nouvelle partie ---
-    except Exception as e:
-         print(f"ERREUR lors de la suppression du blob {storage_path}: {e}")
-         # On continue même si la suppression échoue, le plus important est de rejeter.
-
-    # Mise à jour du statut (comme avant)
-    contrib_ref.update({
-        "status": "rejected",
-        "video_deleted_at": firestore.SERVER_TIMESTAMP
-    })
-
-    return {"ok": True, "status": "rejected", "video_deleted": video_deleted}
-
-# --------------------------------------------------------------------------
-#   Système d'Amis (Nouveau)
-# --------------------------------------------------------------------------
-
-@app.get("/friends/status/{target_uid}")
-async def get_friendship_status(target_uid: str, uid: str = Depends(get_uid)):
-    """Vérifie la relation entre l'utilisateur connecté et un autre utilisateur."""
-    if uid == target_uid:
-        return {"status": "self"}
-
-    friend_ref = db.collection("users").document(uid).collection("friends").document(target_uid)
-    friend_doc = friend_ref.get()
-
-    if not friend_doc.exists:
-        return {"status": "not_friends"}
     
-    return {"status": friend_doc.to_dict().get("status", "not_friends")}
+    return {"list": out}
 
+@app.get("/friends/status/{target}")
+async def friend_status(target: str, uid: str = Depends(get_uid)):
+    if target == uid: return {"status": "self"}
+    d = db.collection("users").document(uid).collection("friends").document(target).get()
+    return {"status": d.to_dict().get("status", "not_friends") if d.exists else "not_friends"}
 
-@firestore.transactional
-def send_friend_request_transaction(transaction, user_ref, target_ref):
-    # Marque la demande comme envoyée pour l'utilisateur actuel
-    transaction.set(user_ref, {"status": "pending_sent", "requested_at": firestore.SERVER_TIMESTAMP})
-    # Marque la demande comme reçue pour l'utilisateur cible
-    transaction.set(target_ref, {"status": "pending_received", "requested_at": firestore.SERVER_TIMESTAMP})
+@app.post("/friends/request/{target}")
+async def friend_req(target: str, uid: str = Depends(get_uid)):
+    db.collection("users").document(uid).collection("friends").document(target).set({"status": "pending_sent"})
+    db.collection("users").document(target).collection("friends").document(uid).set({"status": "pending_received"})
+    return {"ok": True}
 
-@app.post("/friends/request/{target_uid}")
-async def send_friend_request(target_uid: str, uid: str = Depends(get_uid)):
-    """Envoyer une demande d'ami."""
-    transaction = db.transaction()
-    user_ref = db.collection("users").document(uid).collection("friends").document(target_uid)
-    target_ref = db.collection("users").document(target_uid).collection("friends").document(uid)
-    
-    send_friend_request_transaction(transaction, user_ref, target_ref)
-    return {"ok": True, "message": "Demande d'ami envoyée."}
+@app.post("/friends/accept/{target}")
+async def friend_accept(target: str, uid: str = Depends(get_uid)):
+    db.collection("users").document(uid).collection("friends").document(target).update({"status": "accepted"})
+    db.collection("users").document(target).collection("friends").document(uid).update({"status": "accepted"})
+    return {"ok": True}
 
-
-@firestore.transactional
-def remove_friendship_transaction(transaction, user_ref, target_ref):
-    transaction.delete(user_ref)
-    transaction.delete(target_ref)
-
-@app.post("/friends/cancel/{target_uid}")
-async def cancel_friend_request(target_uid: str, uid: str = Depends(get_uid)):
-    """Annuler une demande envoyée ou rejeter une demande reçue."""
-    transaction = db.transaction()
-    user_ref = db.collection("users").document(uid).collection("friends").document(target_uid)
-    target_ref = db.collection("users").document(target_uid).collection("friends").document(uid)
-
-    remove_friendship_transaction(transaction, user_ref, target_ref)
-    return {"ok": True, "message": "Demande annulée."}
-
-
-@firestore.transactional
-def accept_friend_request_transaction(transaction, user_ref, target_ref):
-    # Met à jour le statut des deux côtés à "accepted"
-    transaction.update(user_ref, {"status": "accepted", "friends_since": firestore.SERVER_TIMESTAMP})
-    transaction.update(target_ref, {"status": "accepted", "friends_since": firestore.SERVER_TIMESTAMP})
-
-@app.post("/friends/accept/{target_uid}")
-async def accept_friend_request(target_uid: str, uid: str = Depends(get_uid)):
-    """Accepter une demande d'ami."""
-    transaction = db.transaction()
-    user_ref = db.collection("users").document(uid).collection("friends").document(target_uid)
-    target_ref = db.collection("users").document(target_uid).collection("friends").document(uid)
-    
-    accept_friend_request_transaction(transaction, user_ref, target_ref)
-    return {"ok": True, "message": "Demande acceptée."}
-
-
-# On peut réutiliser /friends/cancel pour refuser, ou créer un alias
-@app.post("/friends/reject/{target_uid}")
-async def reject_friend_request(target_uid: str, uid: str = Depends(get_uid)):
-    """Rejeter une demande d'ami."""
-    return await cancel_friend_request(target_uid, uid) # La logique est la même
-
-
-# Et un alias pour retirer un ami
-@app.post("/friends/remove/{target_uid}")
-async def remove_friend(target_uid: str, uid: str = Depends(get_uid)):
-    """Retirer un ami."""
-    return await cancel_friend_request(target_uid, uid) # La logique est la même
-
+@app.post("/friends/cancel/{target}")
+async def friend_cancel(target: str, uid: str = Depends(get_uid)):
+    db.collection("users").document(uid).collection("friends").document(target).delete()
+    db.collection("users").document(target).collection("friends").document(uid).delete()
+    return {"ok": True}
 
 @app.get("/profile/friends")
-async def get_my_friends(uid: str = Depends(get_uid)):
-    """Récupère toutes les listes d'amis et de demandes."""
-    friends_ref = db.collection("users").document(uid).collection("friends")
-    
-    accepted = []
-    pending_sent = []
-    pending_received = []
+async def my_friends(uid: str = Depends(get_uid)):
+    docs = db.collection("users").document(uid).collection("friends").stream()
+    res = {"accepted": [], "pending_sent": [], "pending_received": []}
+    for d in docs:
+        data = d.to_dict()
+        prof = db.collection("users").document(d.id).get().to_dict() or {}
+        item = {"id": d.id, "displayName": prof.get("displayName"), "photoURL": prof.get("photoURL")}
+        if data["status"] in res: res[data["status"]].append(item)
+    return res
 
-    friend_docs_list = list(friends_ref.stream())
-    user_ids_to_fetch = [doc.id for doc in friend_docs_list]
-
-    user_profiles = {}
-    if user_ids_to_fetch:
-        # --- CORRECTION FINALE ---
-        # On utilise la chaîne spéciale "__name__" pour cibler l'ID du document.
-        # C'est la méthode la plus compatible avec toutes les versions de firebase-admin.
-        users_query = db.collection("users").where("__name__", "in", user_ids_to_fetch)
-        
-        for user in users_query.stream():
-            user_profiles[user.id] = user.to_dict()
-
-    for doc in friend_docs_list:
-        status = doc.to_dict().get("status")
-        friend_id = doc.id
-        profile = user_profiles.get(friend_id, {})
-        
-        friend_data = {
-            "id": friend_id,
-            "displayName": profile.get("displayName", "Athlète Inconnu"),
-            "photoURL": profile.get("photoURL")
-        }
-
-        if status == "accepted":
-            accepted.append(friend_data)
-        elif status == "pending_sent":
-            pending_sent.append(friend_data)
-        elif status == "pending_received":
-            pending_received.append(friend_data)
-
-    return {
-        "accepted": accepted,
-        "pending_sent": pending_sent,
-        "pending_received": pending_received
-    }
+@app.get("/search_users")
+async def search(term: str):
+    if not term: return []
+    t = term.lower()
+    docs = db.collection("users").order_by("displayName_lowercase").start_at([t]).end_at([t + "\uf8ff"]).limit(20).stream()
+    return [{"id": d.id, **d.to_dict()} for d in docs]
