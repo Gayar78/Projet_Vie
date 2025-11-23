@@ -1,8 +1,10 @@
+/* frontend/static/js/ui/pages/_index.js */
 import home, { mount as mountHome } from './home.js'
 import register     from './register.js'
 import leaderboard  from './leaderboard.js'
 import loginPage, { setupLogin } from './login.js'
-import standardsPage from './standards.js' // IMPORT
+import standardsPage from './standards.js'
+import marketPage from './market.js' // AJOUT IMPORT
 
 export const pages = {
   '/': () => {
@@ -17,5 +19,6 @@ export const pages = {
   },
   '/register':  register,
   '/leaderboard': leaderboard,
-  '/standards': standardsPage, // AJOUT ROUTE
+  '/standards': standardsPage,
+  '/market': marketPage,
 }

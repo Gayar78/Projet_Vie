@@ -1,40 +1,26 @@
-# backend/seed_full_ranks.py
+# backend/reset_and_seed.py
 import firebase_admin
 from firebase_admin import credentials, firestore
 from pathlib import Path
 import random
-import math
 
-# ─── CONFIGURATION FIREBASE ───
+# ─── CONFIGURATION ───
 try:
     ROOT_DIR = Path(__file__).resolve().parent.parent
     SERVICE_KEY = ROOT_DIR / "firebase_service_account.json"
     cred = credentials.Certificate(SERVICE_KEY)
-    firebase_admin.initialize_app(cred)
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
     db = firestore.client()
-    print("✓ Connexion Firebase établie.")
+    print("✅ Connexion établie.")
 except Exception as e:
     print(f"❌ Erreur config: {e}")
     exit(1)
 
-# ─── CONSTANTES DU MOTEUR DE JEU ───
-MAX_PTS_PER_EXO = 650
-TOTAL_EXERCISES = 16 # 8 muscu + 5 street + 3 cardio
+# ─── CONSTANTES DU JEU ───
+MAX_PTS_PER_EXO = 650 
 
-# Les bornes de points pour chaque rang (basé sur tes règles)
-RANK_TARGETS = [
-    ("Fer",          500,  1400),
-    ("Bronze",      1600, 3400),
-    ("Argent",      3600, 5400),
-    ("Or",          5600, 7400),
-    ("Platine",     7600, 8600),
-    ("Émeraude",    8800, 9200),
-    ("Diamant",     9400, 9600),
-    ("Maître",      9750, 9840),
-    ("Grand Maître",9860, 9940),
-    ("Challenger",  9960, 10000) # Proche de la perfection
-]
-
+# Standards Elite (pour le calcul des points) - Objectif à atteindre pour avoir 650pts
 STANDARDS = {
     "bench":           {"M": 140, "F": 75},
     "overhead_press":  {"M": 90,  "F": 50},
@@ -60,116 +46,117 @@ CATEGORIES = {
     "cardio": ["run", "bike", "rope"]
 }
 
-# ─── FONCTIONS DE "REVERSE ENGINEERING" ───
-# On part du score voulu pour trouver la perf (l'inverse du main.py)
-
-def get_perf_from_score(target_score_exo, standard):
-    """
-    Score = (Ratio ^ 1.8) * 650
-    Donc Ratio = (Score / 650) ^ (1/1.8)
-    Perf = Ratio * Standard
-    """
-    if target_score_exo <= 0: return 0
-    
-    # On limite pour ne pas casser les maths
-    safe_score = min(target_score_exo, MAX_PTS_PER_EXO * 1.2)
-    
-    ratio = (safe_score / MAX_PTS_PER_EXO) ** (1 / 1.8)
-    perf = ratio * standard
-    
-    # Ajout d'un peu de bruit aléatoire (+/- 5%) pour faire naturel
-    noise = random.uniform(0.95, 1.05)
-    return perf * noise
-
-def calculate_score_check(perf, standard):
-    """Recalcule le score exact pour l'écriture en base (vérification)"""
+# --- CALCUL DES POINTS (Exponentiel) ---
+def calculate_points(perf, standard):
     if standard == 0: return 0
     ratio = perf / standard
+    if ratio < 0: ratio = 0
+    # Courbe : (ratio ^ 1.8) * MAX
     score = (ratio ** 1.8) * MAX_PTS_PER_EXO
-    return int(score)
+    return int(min(score, MAX_PTS_PER_EXO * 1.5))
 
-# ─── SCRIPT PRINCIPAL ───
-def force_rank_distribution():
-    print("\n🎨 Démarrage de la génération FULL SPECTRUM (Fer -> Challenger)...")
+# --- NETTOYAGE ---
+def wipe_user_scores(user_ref):
+    scores = user_ref.collection("scores").stream()
+    for s in scores:
+        s.reference.delete()
+
+# ─── MAIN SCRIPT ───
+def seed_database():
+    print("\n🎲 Démarrage de la RANDOMISATION TOTALE (Sexe & Scores)...\n")
     
     users = list(db.collection("users").stream())
-    if not users:
-        print("❌ Aucun utilisateur trouvé. Créez des comptes d'abord !")
-        return
-
     print(f"👥 {len(users)} utilisateurs trouvés.")
     
     batch = db.batch()
-    count = 0
-    
-    # On boucle sur les utilisateurs
-    for i, user_doc in enumerate(users):
+    batch_count = 0
+    updated_users = 0
+
+    for user_doc in users:
+        user_id = user_doc.id
         user_data = user_doc.to_dict()
-        gender = user_data.get("gender", "M")
         
-        # On sélectionne un rang cible de manière cyclique
-        # User 1 -> Fer, User 2 -> Bronze ... User 10 -> Challenger, User 11 -> Fer...
-        rank_name, min_pts, max_pts = RANK_TARGETS[i % len(RANK_TARGETS)]
+        # 1. RANDOMISATION DU GENRE
+        # On force un changement aléatoire pour bien tester les filtres
+        new_gender = random.choice(["M", "F"])
         
-        # On définit un score cible global pour cet utilisateur
-        target_total = random.randint(min_pts, max_pts)
+        updates = {"gender": new_gender}
         
-        # Score moyen par exercice pour atteindre ce total
-        # (On suppose qu'il pratique environ 12 exos sur les 16)
-        active_exos = 12
-        avg_score_per_exo = target_total / active_exos
+        # On s'assure qu'il a un pseudo
+        if "displayName" not in user_data or not user_data["displayName"]:
+            updates["displayName"] = f"Athlète {user_id[:4]}"
+            updates["displayName_lowercase"] = f"athlète {user_id[:4]}"
         
-        print(f"   → {user_data.get('displayName', 'Inconnu')[:15]:<15} : Objectif {rank_name:<12} (~{target_total} pts)")
+        batch.set(user_doc.reference, updates, merge=True)
+        batch_count += 1
 
-        # Nettoyage
-        old_scores = user_doc.reference.collection("scores").stream()
-        for s in old_scores:
-            batch.delete(s.reference)
+        # 2. SUPPRESSION ANCIENS SCORES
+        wipe_user_scores(user_doc.reference)
 
-        real_total_general = 0
+        # 3. GÉNÉRATION SCORE (Logique 2k - 10k)
+        # On définit un "Potentiel Athlétique" pour cet utilisateur entre 0.35 (Débutant) et 1.1 (Champion)
+        # Cela permet d'avoir des scores cohérents : un mec fort sera fort partout (à peu près)
+        athlete_potential = random.uniform(0.35, 1.10) 
 
-        for cat, metrics in CATEGORIES.items():
-            cat_data = {"gender": gender}
+        total_general = 0
+        
+        for cat_name, exercises in CATEGORIES.items():
+            cat_doc_data = {"gender": new_gender, "total": 0}
             cat_total = 0
             
-            for exo in metrics:
-                # Pour atteindre le rang, on génère une perf basée sur le score moyen requis
-                # On ajoute de la variance : certains exos forts, d'autres faibles
-                variance = random.uniform(0.5, 1.5) 
-                target_exo_score = avg_score_per_exo * variance
-                
-                # Calcul de la performance (kg, sec, km/h)
-                std = STANDARDS[exo][gender]
-                perf_val = get_perf_from_score(target_exo_score, std)
-                
-                # On arrondit joli
-                if perf_val > 10: perf_val = int(perf_val)
-                else: perf_val = round(perf_val, 1)
-                
-                # On recalcul le score exact (car on a arrondi la perf)
-                final_score = calculate_score_check(perf_val, std)
-                
-                cat_data[exo] = final_score
-                cat_total += final_score
+            # On décide si l'utilisateur pratique cette catégorie (95% de chance pour remplir le leaderboard)
+            if random.random() < 0.95:
+                for exo in exercises:
+                    # On applique le potentiel global + une variation locale par exercice (+/- 20%)
+                    # Cela permet d'avoir des points forts et des points faibles
+                    local_variance = random.uniform(0.8, 1.2)
+                    
+                    # Performance simulée
+                    standard = STANDARDS[exo][new_gender]
+                    perf = standard * athlete_potential * local_variance
+                    
+                    # Arrondi propre
+                    perf_display = int(perf) if perf > 10 else round(perf, 1)
+                    
+                    # Calcul points
+                    pts = calculate_points(perf_display, standard)
+                    
+                    # Ajout au doc
+                    cat_doc_data[exo] = pts
+                    cat_total += pts
             
-            cat_data["total"] = cat_total
-            real_total_general += cat_total
+            cat_doc_data["total"] = cat_total
+            total_general += cat_total
             
-            batch.set(user_doc.reference.collection("scores").document(cat), cat_data)
-            count += 1
+            # Ajout Batch
+            cat_ref = user_doc.reference.collection("scores").document(cat_name)
+            batch.set(cat_ref, cat_doc_data)
+            batch_count += 1
 
-        # Total général
-        batch.set(user_doc.reference.collection("scores").document("general"), {"general": real_total_general})
+        # 4. SCORE GÉNÉRAL AVEC GENRE (CRUCIAL)
+        gen_ref = user_doc.reference.collection("scores").document("general")
+        batch.set(gen_ref, {
+            "general": total_general,
+            "gender": new_gender  # Indispensable pour l'index composite
+        })
+        batch_count += 1
         
-        if count >= 400:
+        updated_users += 1
+        # Affichage pour suivi
+        rank_txt = "Challenger" if total_general > 9500 else "Moyen"
+        print(f"   🎲 {user_data.get('displayName', user_id)[:15]:<15} | {new_gender} | Potentiel: {int(athlete_potential*100)}% | Score: {total_general}")
+
+        if batch_count >= 400:
+            print("   💾 Sauvegarde intermédiaire...")
             batch.commit()
             batch = db.batch()
-            count = 0
+            batch_count = 0
 
-    if count > 0:
+    if batch_count > 0:
         batch.commit()
 
-    print("\n✨ Terminé ! Le Leaderboard devrait maintenant afficher un arc-en-ciel de grades.")
+    print(f"\n✨ SUCCÈS : {updated_users} profils randomisés.")
+    print("👉 Genres mélangés et scores répartis sur toute l'échelle.")
 
 if __name__ == "__main__":
-    force_rank_distribution()
+    seed_database()

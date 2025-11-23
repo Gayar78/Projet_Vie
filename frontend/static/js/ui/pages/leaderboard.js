@@ -35,10 +35,7 @@ export function getRankColor(rankName) {
 }
 
 // 3. NOUVELLE LOGIQUE DE RANG CONTEXTUEL
-// On normalise le score sur une base de 10 000 pour déterminer le rang
 export function rankFromPoints(score, contextMax = 10000) {
-    // Règle de trois : Si j'ai 600/650, combien ça fait sur 10000 ?
-    // (600 / 650) * 10000 = 9230 -> Émeraude
     const normalizedScore = (score / contextMax) * 10000;
 
     if (normalizedScore < 1500) return 'Fer';
@@ -152,9 +149,13 @@ export default function leaderboardPage () {
     <div class="flex flex-col gap-6">
       <div class="liquid-glass-card p-6 rounded-2xl space-y-4"
            data-tilt data-tilt-glare data-tilt-max-glare="0.05" data-tilt-scale="1.02">
+        
+        <!-- ICONE INFO MODIFIÉE -->
         <h3 class="text-lg font-bold text-white flex items-center gap-2">
-            <span class="text-pink-500">ℹ️</span> Info
+            <svg class="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            Info
         </h3>
+        
         <div id="activity-feed" class="space-y-3 text-sm text-gray-400 leading-relaxed"></div>
       </div>
     </div>
@@ -226,7 +227,6 @@ export async function loadLeaderboard (gender = 'all', cat='general', metric='ge
             contextMax = MAX_POINTS.exo; // 650 pts
         }
     }
-    // Cas spécial : 'general' -> 'general' reste 10000
 
     tbody.innerHTML = list.map((u,i)=> {
         // 5. CALCUL DU RANG CONTEXTUEL

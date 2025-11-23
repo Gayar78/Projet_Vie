@@ -23,9 +23,12 @@ export function initRouter () {
   };
 
   const injectView = (html) => {
-      app.innerHTML = `<div id="router-view" class="page-enter w-full min-h-screen">${html}</div>`;
+      // CORRECTION 1 : Ajout de 'pb-24 lg:pb-0' pour éviter que la Bottom Bar mobile cache le contenu
+      app.innerHTML = `<div id="router-view" class="page-enter w-full min-h-screen pb-24 lg:pb-0">${html}</div>`;
+      
       renderPage(location.pathname);
       initBackground();
+      
       requestAnimationFrame(() => {
           if (window.VanillaTilt) {
               document.querySelectorAll('.liquid-glass-card').forEach(el => el.vanillaTilt?.destroy());
@@ -37,7 +40,7 @@ export function initRouter () {
   };
 
   async function render (path) {
-    /* 1. ROUTES PROFILE */
+    /* 1. ROUTES PROFILE (Interne) */
     if (path.startsWith('/profile')) {
       const tab = path.split('/')[2] || 'dashboard';
       if (!localStorage.getItem('token')) { history.replaceState(null, '', '/login'); return render('/login'); }
@@ -48,10 +51,11 @@ export function initRouter () {
       const pageMod  = await import(`../ui/pages/profile/${tab}.js`);
       const contentHTML = pageMod.default(user);
 
+      // Layout Responsive : Sidebar cachée sur mobile (gérée par le composant sideBar lui-même)
       const finalHTML = /* html */ `
-        <section class="relative min-h-[calc(100vh-160px)] pt-28 px-6 pb-20 flex flex-col lg:flex-row gap-10">
-          <div class="lg:fixed lg:left-8 lg:top-1/2 lg:-translate-y-1/2 lg:w-64 z-10">${sideBar(tab, user)}</div>
-          <div class="flex-1 lg:pl-72">${contentHTML}</div>
+        <section class="relative min-h-[calc(100vh-160px)] pt-6 lg:pt-28 px-4 lg:px-6 flex flex-col lg:flex-row lg:gap-10 max-w-7xl mx-auto">
+          ${sideBar(tab, user)}
+          <div class="flex-1 w-full">${contentHTML}</div>
         </section>`;
       
       await exitPromise;
@@ -90,7 +94,6 @@ export function initRouter () {
         } catch (error) {
             console.error(error);
             await exitPromise;
-            // AFFICHE LA VRAIE ERREUR POUR LE DEBUG
             injectView(`<section class="min-h-[calc(100vh-160px)] pt-40 text-center px-6">
                 <h1 class="text-4xl font-black text-red-500 mb-4">Oups !</h1>
                 <p class="text-gray-300 mb-2">Une erreur est survenue :</p>
@@ -101,7 +104,7 @@ export function initRouter () {
         return;
     }
 
-    /* 3. PAGES SIMPLES */
+    /* 3. PAGES SIMPLES (Home, Login, Register, Market...) */
     const pageFn = pages[path] || pages['/'];
     const exitPromise = animateExit();
     const htmlContent = pageFn();
@@ -109,9 +112,18 @@ export function initRouter () {
     await exitPromise;
     injectView(htmlContent);
 
+    // CORRECTION 2 : Gestion spécifique des scripts de page
+    
+    // Leaderboard
     if (path === '/leaderboard') {
       const { loadLeaderboard, loadActivity, initLeaderboardFilters } = await import('../ui/pages/leaderboard.js');
       requestAnimationFrame(() => { initLeaderboardFilters(); loadLeaderboard(); loadActivity(); });
+    }
+    
+    // Home (Pour le Feed et le Preview Rank)
+    if (path === '/') {
+         const { mount } = await import('../ui/pages/home.js');
+         requestAnimationFrame(mount);
     }
   }
 

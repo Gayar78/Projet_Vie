@@ -363,13 +363,26 @@ async def approve_contribution(contrib_id: str, uid: str = Depends(get_admin_uid
     return {"ok": True, "is_pr": is_pr, "points": new_points, "added": pts_added}
 
 @app.post("/admin/reject_contribution/{contrib_id}")
-async def reject_contribution(contrib_id: str, uid: str = Depends(get_admin_uid)):
+async def reject_contribution(
+    contrib_id: str, 
+    uid: str = Depends(get_admin_uid),
+    reason: str = Form("Non respect des standards") # Nouveau paramètre optionnel
+):
     ref = db.collection("contributions").document(contrib_id)
     data = ref.get().to_dict()
+    
+    # On supprime la vidéo du stockage pour économiser de la place
     if data and data.get("storage_path"):
         try: bucket.blob(data["storage_path"]).delete()
         except: pass
-    ref.update({"status": "rejected", "rejected_by": uid})
+
+    # On enregistre le statut ET la raison
+    ref.update({
+        "status": "rejected", 
+        "rejected_by": uid,
+        "rejection_reason": reason,
+        "rejected_at": firestore.SERVER_TIMESTAMP
+    })
     return {"ok": True}
 
 
@@ -486,3 +499,27 @@ async def search(term: str):
     t = term.lower()
     docs = db.collection("users").order_by("displayName_lowercase").start_at([t]).end_at([t + "\uf8ff"]).limit(20).stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
+
+
+@app.get("/profile/activity")
+async def get_profile_activity(uid: str = Depends(get_uid)):
+    """
+    Récupère l'historique complet (Validé, Rejeté, En attente)
+    """
+    # On trie par 'submitted_at' pour avoir l'ordre chronologique réel
+    # On enlève le filtre 'status=approved' pour voir les rejets et les attentes
+    activity_ref = (
+        db.collection("contributions")
+        .where(filter=firestore.FieldFilter("author_uid", "==", uid))
+        .order_by("submitted_at", direction=firestore.Query.DESCENDING)
+        .limit(50)
+    ).stream()
+
+    activities = []
+    for doc in activity_ref:
+        d = doc.to_dict()
+        # On s'assure que l'ID est présent si besoin
+        d['id'] = doc.id
+        activities.append(d)
+
+    return activities

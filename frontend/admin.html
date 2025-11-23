@@ -3,40 +3,41 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Panel Admin - DraftPrime</title>
+  <title>Admin V2 - DraftPrime</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #0f172a; color: white; font-family: system-ui, sans-serif; }
+    .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+  </style>
 </head>
+<body class="min-h-screen p-6">
 
-<body class="bg-gradient-to-br from-[#0f0f1b] to-[#1a1a2e] text-gray-100 font-sans min-h-screen">
-
-  <div id="app" class="container mx-auto p-8">
-    <h1 class="text-3xl font-bold mb-6 text-pink-400">Panel Administrateur</h1>
-
-    <div id="login-admin" class="max-w-md bg-gradient-to-br from-white/70 to-white/40 backdrop-blur-xl border border-white/30 shadow-lg p-6 rounded-lg">
-      <p class="mb-4">Tu dois te connecter avec ton compte admin Firebase.</p>
-      <form id="login-form" class="space-y-4">
-        <label class="block">Email</label>
-        <input name="email" type="email" class="w-full px-3 py-2 rounded-lg bg-gradient-to-br from-white/60 to-white/40 border border-black/10 focus:ring-pink-500" required>
-
-        <label class="block">Mot de passe</label>
-        <input name="password" type="password" class="w-full px-3 py-2 rounded-lg bg-gradient-to-br from-white/60 to-white/40 border border-black/10 focus:ring-pink-500" required>
-
-        <button class="w-full py-2 rounded-lg btn-glass ">
-          Connexion Admin
+  <div id="app" class="max-w-4xl mx-auto">
+    
+    <!-- HEADER -->
+    <div class="flex justify-between items-center mb-10">
+        <h1 class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500">
+            ADMINISTRATEUR
+        </h1>
+        <button id="refresh-btn" class="px-4 py-2 rounded-lg glass hover:bg-white/10 transition">
+            ↻ Rafraîchir
         </button>
-        <p id="login-error" class="text-red-400 text-sm"></p>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="login-admin" class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl">
+      <h2 class="text-xl font-bold mb-6">Connexion Requise</h2>
+      <form id="login-form" class="space-y-4">
+        <input name="email" type="email" placeholder="Email Admin" class="w-full px-4 py-3 rounded-lg bg-black/50 border border-white/10 text-white focus:ring-pink-500" required>
+        <input name="password" type="password" placeholder="Mot de passe" class="w-full px-4 py-3 rounded-lg bg-black/50 border border-white/10 text-white focus:ring-pink-500" required>
+        <button class="w-full py-3 rounded-lg bg-pink-600 font-bold hover:bg-pink-500 transition">Se connecter</button>
+        <p id="login-error" class="text-red-400 text-sm text-center"></p>
       </form>
     </div>
 
-    <div id="contributions-list" class="hidden">
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-2xl ">Contributions en attente</h2>
-        <button id="refresh-btn" class="px-4 py-2 rounded-lg bg-gradient-to-br from-white/70 to-white/40 backdrop-blur-xl border border-white/30 shadow-lg hover:bg-white/20">
-          Rafraîchir
-        </button>
-      </div>
-      <div id="list-container" class="space-y-4">
-        </div>
+    <!-- LISTE -->
+    <div id="contributions-list" class="hidden space-y-6">
+        <!-- Injecté par JS -->
     </div>
 
   </div>
@@ -45,201 +46,126 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth.js";
 
-    // Colle ta config Firebase ici (la même que dans vite.config.mjs)
     const firebaseConfig = {
       apiKey: "AIzaSyDOqn7DJSB-FtTfSj1-6RE8vzznyxNhjNw",
       authDomain: "projetvie-212e4.firebaseapp.com",
       projectId: "projetvie-212e4",
     };
 
-    // Initialisation
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
+    let currentToken = null;
 
-    // ---------- DOM Elements ----------
     const loginDiv = document.getElementById('login-admin');
-    const contribDiv = document.getElementById('contributions-list');
-    const loginForm = document.getElementById('login-form');
-    const loginError = document.getElementById('login-error');
-    const listContainer = document.getElementById('list-container');
-    const refreshBtn = document.getElementById('refresh-btn');
-
-
-
-    let currentToken = null; // Pour stocker le token d'authentification
-
-    // ---------- 1. Logique de Connexion ----------
-    loginForm.addEventListener('submit', async (e) => {
+    const listDiv = document.getElementById('contributions-list');
+    
+    // LOGIN
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const email = loginForm.email.value;
-      const password = loginForm.password.value;
-      loginError.textContent = '';
-
       try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        // Le onAuthStateChanged va gérer l'affichage
+        await signInWithEmailAndPassword(auth, e.target.email.value, e.target.password.value);
       } catch (error) {
-        console.error(error);
-        loginError.textContent = "Erreur: " + error.message;
+        document.getElementById('login-error').textContent = error.message;
       }
     });
 
-    // ---------- 2. Gestion de l'état (Connecté / Déconnecté) ----------
     onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // L'utilisateur est connecté
         currentToken = await user.getIdToken();
         loginDiv.classList.add('hidden');
-        contribDiv.classList.remove('hidden');
-        loadContributions(); // On charge les contributions
-      } else {
-        // L'utilisateur est déconnecté
-        currentToken = null;
-        loginDiv.classList.remove('hidden');
-        contribDiv.classList.add('hidden');
+        listDiv.classList.remove('hidden');
+        loadData();
       }
     });
 
-    // ---------- 3. Charger les contributions ----------
-    const loadContributions = async () => {
-      if (!currentToken) return;
-      listContainer.innerHTML = '<p>Chargement...</p>';
+    document.getElementById('refresh-btn').addEventListener('click', loadData);
 
-      try {
-        const res = await fetch('/api/admin/pending_contributions', {
-          headers: { 'Authorization': currentToken }
+    async function loadData() {
+        listDiv.innerHTML = '<p class="text-center text-gray-500">Chargement...</p>';
+        const res = await fetch('/api/admin/pending_contributions', { headers: { 'Authorization': currentToken } });
+        const data = await res.json();
+        
+        if(data.length === 0) {
+            listDiv.innerHTML = '<p class="text-center text-green-400 text-xl font-bold">Tout est propre ! Aucune demande.</p>';
+            return;
+        }
+
+        listDiv.innerHTML = data.map(c => `
+            <div class="glass p-6 rounded-2xl relative group" id="card-${c.id}">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <p class="text-lg font-bold text-white">${c.author_name}</p>
+                        <p class="text-pink-400 text-sm font-bold uppercase tracking-wider">${c.category} / ${c.exercise}</p>
+                    </div>
+                    <a href="${c.video_url}" target="_blank" class="text-blue-400 hover:underline text-sm">Voir Vidéo ↗</a>
+                </div>
+
+                <div class="bg-black/40 p-4 rounded-lg border border-white/5 mb-4 grid grid-cols-2 gap-4 text-sm">
+                    <div><span class="text-gray-500">Poids:</span> <span class="text-white font-mono">${c.performance.weight || '-'} kg</span></div>
+                    <div><span class="text-gray-500">Reps:</span> <span class="text-white font-mono">${c.performance.reps || '-'}</span></div>
+                    <div><span class="text-gray-500">Temps:</span> <span class="text-white font-mono">${c.performance.time || '-'}</span></div>
+                    <div><span class="text-gray-500">Dist:</span> <span class="text-white font-mono">${c.performance.distance || '-'}</span></div>
+                    <div class="col-span-2"><span class="text-gray-500">Note:</span> <span class="text-gray-300 italic">"${c.performance.message || '...'}"</span></div>
+                </div>
+
+                <div class="flex gap-3" id="actions-${c.id}">
+                    <button onclick="approve('${c.id}')" class="flex-1 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-bold transition">VALIDER</button>
+                    <button onclick="showReject('${c.id}')" class="flex-1 py-3 rounded-lg bg-red-600 hover:bg-red-500 font-bold transition">REFUSER</button>
+                </div>
+
+                <!-- Formulaire de rejet caché -->
+                <div id="reject-form-${c.id}" class="hidden mt-4 pt-4 border-t border-white/10">
+                    <label class="block text-xs text-gray-400 mb-2">Raison du refus :</label>
+                    <select id="reason-select-${c.id}" class="w-full bg-black/50 border border-white/20 rounded p-2 text-sm mb-2 text-white">
+                        <option value="Vidéo incomplète ou coupée">Vidéo incomplète ou coupée</option>
+                        <option value="Amplitude de mouvement insuffisante">Amplitude de mouvement insuffisante</option>
+                        <option value="Angle de caméra inadapté">Angle de caméra inadapté</option>
+                        <option value="Poids/Charge non vérifiable">Poids/Charge non vérifiable</option>
+                        <option value="Autre (Préciser)">Autre (Préciser dans les standards)</option>
+                    </select>
+                    <div class="flex gap-2">
+                        <button onclick="confirmReject('${c.id}')" class="flex-1 py-2 bg-red-600 rounded text-sm font-bold">Confirmer le rejet</button>
+                        <button onclick="hideReject('${c.id}')" class="px-4 py-2 bg-white/10 rounded text-sm">Annuler</button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Fonctions globales pour les boutons onclick
+    window.approve = async (id) => {
+        if(!confirm("Valider cette perf ?")) return;
+        document.getElementById(`card-${id}`).style.opacity = "0.5";
+        await fetch(`/api/admin/approve_contribution/${id}`, { 
+            method: 'POST', 
+            headers: { 'Authorization': currentToken } 
         });
-
-        if (res.status === 403) {
-          listContainer.innerHTML = '<p class="text-red-400">Erreur: Tu es connecté, mais tu n\'es pas l\'admin configuré dans main.py.</p>';
-          return;
-        }
-        if (!res.ok) throw new Error(await res.text());
-
-        const contributions = await res.json();
-        renderContributions(contributions);
-
-      } catch (error) {
-        listContainer.innerHTML = `<p class="text-red-400">Erreur: ${error.message}</p>`;
-      }
+        document.getElementById(`card-${id}`).remove();
     };
 
-    refreshBtn.addEventListener('click', loadContributions);
-
-    // ---------- 4. Afficher les contributions ----------
-    const renderContributions = (contributions) => {
-      if (contributions.length === 0) {
-        listContainer.innerHTML = '<p class="text-gray-400">Rien à valider. C\'est du bon travail !</p>';
-        return;
-      }
-
-      listContainer.innerHTML = contributions.map(c => {
-
-        // 1. Afficher la performance de l'utilisateur
-        const perf = c.performance || {};
-        const perfHtml = [
-            perf.weight ? `Poids: <strong>${perf.weight} kg</strong>` : '',
-            perf.reps ? `Reps: <strong>${perf.reps}</strong>` : '',
-            perf.distance ? `Distance: <strong>${perf.distance} km</strong>` : '',
-            perf.time ? `Temps: <strong>${perf.time}</strong>` : '',
-            perf.message ? `Message: <strong>${perf.message}</strong>` : ''
-        ].filter(Boolean).join(' / '); // Filtre les champs vides
-
-        return `
-        <div class="bg-gradient-to-br from-white/60 to-white/30 backdrop-blur-xl border border-white/30 shadow-md p-4 rounded-lg border border-white/10" data-id="${c.id}">
-
-          <p class="text-sm text-gray-400">De: <strong>${c.author_name}</strong></p>
-          <p>Exercice: <strong>${c.category} / ${c.exercise}</strong></p>
-          <a href="${c.video_url}" target="_blank" class="text-pink-400 hover:underline">
-            Voir la vidéo ↗
-          </a>
-          <p class="mt-2">Consentement: <strong>${c.consent ? 'Oui' : 'Non'}</strong></p>
-
-          <hr class="border-white/10 my-3">
-
-          <p class="">Performance soumise à valider :</p>
-          <p class="text-lg text-yellow-400 p-2 bg-black/20 rounded-lg">
-            ${perfHtml || 'Aucune donnée'}
-          </p>
-
-          <hr class="border-white/10 my-4">
-
-          <div class="flex gap-4 items-center">
-            <button data-action="approve" data-id="${c.id}"
-                    class="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 ">
-              Approuver
-            </button>
-            <button data-action="reject" data-id="${c.id}"
-                    class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 ">
-              Rejeter
-            </button>
-            <span id="status-${c.id}" class="text-sm mt-2 block"></span>
-          </div>
-        </div>
-      `}).join('');
+    window.showReject = (id) => {
+        document.getElementById(`actions-${id}`).classList.add('hidden');
+        document.getElementById(`reject-form-${id}`).classList.remove('hidden');
     };
 
-    // ---------- 5. Gérer les clics "Approuver" / "Rejeter" ----------
-    listContainer.addEventListener('click', async (e) => {
-      const button = e.target.closest('button[data-action]');
-      if (!button) return;
+    window.hideReject = (id) => {
+        document.getElementById(`actions-${id}`).classList.remove('hidden');
+        document.getElementById(`reject-form-${id}`).classList.add('hidden');
+    };
 
-      const action = button.dataset.action;
-      const id = button.dataset.id;
-      const card = button.closest('div[data-id]');
-      const statusEl = document.getElementById(`status-${id}`);
+    window.confirmReject = async (id) => {
+        const reason = document.getElementById(`reason-select-${id}`).value;
+        const fd = new FormData();
+        fd.append('reason', reason);
 
-      button.disabled = true;
-      statusEl.textContent = 'Traitement...';
-
-      try {
-        if (action === 'approve') {
-
-              const res = await fetch(`/api/admin/approve_contribution/${id}`, {
-                method: 'POST',
-                headers: {
-                  'Authorization': currentToken,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({}) // On envoie un corps vide
-              });
-
-              if (!res.ok) throw new Error(await res.text());
-
-              const data = await res.json();
-
-              // NOUVELLE LOGIQUE D'AFFICHAGE
-              if (data.is_personal_record) {
-                  // C'est un nouveau record !
-                  statusEl.textContent = `Approuvé! Nouveau Record. +${data.points_added_to_total} pts ajoutés. (Niv: ${data.level_equivalent})`;
-                  card.classList.add('border-green-500');
-              } else {
-                  // C'est validé, mais ce n'est pas un record
-                  statusEl.textContent = `Approuvé (Pas un record). 0 pts ajoutés. (Niv: ${data.level_equivalent})`;
-                  card.classList.add('border-gray-500');
-              }
-
-
-        } else if (action === 'reject') {
-            const res = await fetch(`/api/admin/reject_contribution/${id}`, {
-                method: 'POST',
-                headers: { 'Authorization': currentToken }
-            });
-
-          if (!res.ok) throw new Error(await res.text());
-          statusEl.textContent = 'Rejeté.';
-          card.classList.add('border-red-500');
-        }
-
-        // On fait disparaître la carte après 2 secondes
-        setTimeout(() => card.style.display = 'none', 2000);
-
-      } catch (error) {
-        statusEl.textContent = `Erreur: ${error.message}`;
-        button.disabled = false;
-      }
-    });
-
+        document.getElementById(`card-${id}`).style.opacity = "0.5";
+        await fetch(`/api/admin/reject_contribution/${id}`, { 
+            method: 'POST', 
+            headers: { 'Authorization': currentToken },
+            body: fd
+        });
+        document.getElementById(`card-${id}`).remove();
+    };
   </script>
 </body>
 </html>
