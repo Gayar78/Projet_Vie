@@ -9,13 +9,26 @@
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    
+    /* Cache le logo Spline en bas à droite si tu veux un look plus propre */
+    spline-viewer::part(logo) {
+        display: none;
+    }
   </style>
 </head>
 
-<!-- BACKGROUND GRIS FONCÉ + TEXTE BLANC -->
+<!-- BACKGROUND GRIS FONCÉ (Fallback) + TEXTE BLANC -->
 <body class="scrollbar-hide bg-gray-900 text-gray-100 font-sans selection:bg-pink-500 selection:text-white">
 
-  <div id="vanta-bg" class="fixed inset-0 z-[-10]"></div>
+  <!-- NOUVEAU BACKGROUND SPLINE -->
+  <!-- fixed = reste à l'écran / inset-0 = plein écran / z-[-10] = derrière tout 
+  <script type="module" src="https://unpkg.com/@splinetool/viewer@1.12.2/build/spline-viewer.js"></script>
+  <spline-viewer 
+    url="https://prod.spline.design/gp3-5Sp4jskJLyB5/scene.splinecode"
+    class="fixed inset-0 w-full h-full z-[-10] pointer-events-none md:pointer-events-auto">
+  </spline-viewer>
+
+   CONTENU DE L'APP -->
   <div id="app" class="relative z-0"></div>
 
   <!-- Librairies -->

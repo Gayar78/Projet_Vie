@@ -131,6 +131,23 @@ def calculate_score_cardio(exercise, gender, distance, time_str, reps=0):
     return apply_difficulty_curve(ratio), perf_value
 
 
+# --- MODÈLES GROUPES ---
+class GroupCreate(BaseModel):
+    name: str
+    members: list[str] # Liste des UIDs des amis invités
+
+class GroupAction(BaseModel):
+    group_id: str
+
+class GroupRename(BaseModel):
+    new_name: str
+
+class GroupAddMembers(BaseModel):
+    members: list[str]
+
+class GroupKickMember(BaseModel):
+    member_uid: str
+
 # ─── AUTH & UTILS ───
 class GenderEnum(str, enum.Enum):
     male = "M"
@@ -428,25 +445,68 @@ async def get_feed():
     return [d.to_dict() for d in docs]
 
 @app.get("/leaderboard")
-async def leaderboard(gender: str="all", cat: str="general", metric: str="general", limit: int=50):
-    coll = db.collection_group("scores")
-    if gender in ["M", "F"]:
-        coll = coll.where(filter=firestore.FieldFilter("gender", "==", gender))
-    
-    try:
-        docs = coll.order_by(metric, direction=firestore.Query.DESCENDING).limit(limit).stream()
-    except Exception as e:
-        print(f"Index Error likely: {e}")
-        return {"list": []}
+async def leaderboard(gender: str="all", cat: str="general", metric: str="general", limit: int=50, group_id: str = None):
+    """
+    Si group_id est fourni, on ne récupère que les scores des membres de ce groupe.
+    Sinon, comportement standard (Global).
+    """
+    # 1. LOGIQUE DE GROUPE
+    target_uids = []
+    if group_id:
+        group_doc = db.collection("groups").document(group_id).get()
+        if not group_doc.exists:
+            return {"list": []}
+        target_uids = group_doc.to_dict().get("members", [])
+        if not target_uids:
+            return {"list": []}
 
+    # 2. REQUÊTE
+    if group_id:
+        # Stratégie Groupe : On récupère les scores spécifiques des membres (Efficace pour < 50 membres)
+        # On ne peut pas faire de tri côté DB facilement ici, on le fera en Python
+        docs = []
+        for uid in target_uids:
+            # On cherche le doc de score spécifique
+            score_ref = db.collection("users").document(uid).collection("scores").document(cat)
+            s_doc = score_ref.get()
+            if s_doc.exists:
+                d = s_doc.to_dict()
+                # Filtre genre manuel si besoin
+                if gender == "all" or d.get("gender") == gender:
+                    d["_uid"] = uid # On attache l'ID pour la suite
+                    docs.append(d)
+    else:
+        # Stratégie Globale (Existante)
+        coll = db.collection_group("scores")
+        if gender in ["M", "F"]:
+            coll = coll.where(filter=firestore.FieldFilter("gender", "==", gender))
+        try:
+            # Le tri se fait ici via l'index
+            stream = coll.order_by(metric, direction=firestore.Query.DESCENDING).limit(limit).stream()
+            docs = []
+            for d in stream:
+                dic = d.to_dict()
+                dic["_uid"] = d.reference.parent.parent.id
+                docs.append(dic)
+        except Exception as e:
+            print(f"Index Error: {e}")
+            return {"list": []}
+
+    # 3. FORMATAGE
     out = []
+    
+    # Si mode groupe, on doit trier manuellement car on a fetch par ID
+    if group_id:
+        docs.sort(key=lambda x: x.get(metric, 0), reverse=True)
+
     for d in docs:
-        if d.id != cat: continue
-        
         score = d.get(metric) or 0
         if score == 0: continue
         
-        uid = d.reference.parent.parent.id
+        uid = d["_uid"]
+        
+        # Optimisation: Pour le leaderboard global, on a déjà les infos si on les stocke dans le score
+        # Sinon on fetch le user (Attention aux lectures en masse)
         u_data = db.collection("users").document(uid).get().to_dict() or {}
         
         out.append({
@@ -455,8 +515,121 @@ async def leaderboard(gender: str="all", cat: str="general", metric: str="genera
             "displayName": u_data.get("displayName", "Athlète"),
             "photoURL": u_data.get("photoURL"),
         })
+        
+        if len(out) >= limit: break
     
     return {"list": out}
+
+# --- ENDPOINTS GROUPES (NOUVEAU) ---
+
+@app.get("/groups")
+async def get_my_groups(uid: str = Depends(get_uid)):
+    """Récupère les groupes où je suis membre et ceux où je suis invité."""
+    # Groupes où je suis membre
+    member_of = db.collection("groups").where(filter=firestore.FieldFilter("members", "array_contains", uid)).stream()
+    # Groupes où je suis invité
+    invited_to = db.collection("groups").where(filter=firestore.FieldFilter("invited", "array_contains", uid)).stream()
+    
+    res = {"member": [], "invited": []}
+    for g in member_of:
+        d = g.to_dict()
+        d["id"] = g.id
+        res["member"].append(d)
+    for g in invited_to:
+        d = g.to_dict()
+        d["id"] = g.id
+        # On ajoute le nom du créateur pour l'invit
+        admin_u = db.collection("users").document(d["admin_uid"]).get().to_dict()
+        d["admin_name"] = admin_u.get("displayName", "Inconnu")
+        res["invited"].append(d)
+        
+    return res
+
+@app.post("/groups/create")
+async def create_group(data: GroupCreate, uid: str = Depends(get_uid)):
+    new_group = {
+        "name": data.name,
+        "admin_uid": uid,
+        "members": [uid], # Le créateur est membre direct
+        "invited": data.members, # Les amis sélectionnés sont invités
+        "created_at": firestore.SERVER_TIMESTAMP
+    }
+    db.collection("groups").add(new_group)
+    return {"ok": True}
+
+@app.post("/groups/join/{group_id}")
+async def join_group(group_id: str, uid: str = Depends(get_uid)):
+    ref = db.collection("groups").document(group_id)
+    doc = ref.get()
+    if not doc.exists: raise HTTPException(404)
+    
+    # On retire de invited et on ajoute à members
+    ref.update({
+        "invited": firestore.ArrayRemove([uid]),
+        "members": firestore.ArrayUnion([uid])
+    })
+    return {"ok": True}
+
+@app.post("/groups/leave/{group_id}")
+async def leave_group(group_id: str, uid: str = Depends(get_uid)):
+    ref = db.collection("groups").document(group_id)
+    # On retire de tout
+    ref.update({
+        "invited": firestore.ArrayRemove([uid]),
+        "members": firestore.ArrayRemove([uid])
+    })
+    # Si plus de membres, supprimer le groupe ? (Optionnel)
+    return {"ok": True}
+
+@app.post("/groups/delete/{group_id}")
+async def delete_group(group_id: str, uid: str = Depends(get_uid)):
+    ref = db.collection("groups").document(group_id)
+    doc = ref.get()
+    if not doc.exists: return {"ok": False}
+    if doc.to_dict()["admin_uid"] != uid: raise HTTPException(403, "Seul l'admin peut supprimer")
+    
+    ref.delete()
+    return {"ok": True}
+
+@app.post("/groups/rename/{group_id}")
+async def rename_group(group_id: str, data: GroupRename, uid: str = Depends(get_uid)):
+    ref = db.collection("groups").document(group_id)
+    doc = ref.get()
+    if not doc.exists: raise HTTPException(404)
+    if doc.to_dict()["admin_uid"] != uid: raise HTTPException(403, "Not admin")
+    
+    ref.update({"name": data.new_name})
+    return {"ok": True}
+
+@app.post("/groups/add_members/{group_id}")
+async def add_group_members(group_id: str, data: GroupAddMembers, uid: str = Depends(get_uid)):
+    ref = db.collection("groups").document(group_id)
+    doc = ref.get()
+    if not doc.exists: raise HTTPException(404)
+    # On permet aux membres d'inviter ou seulement admin ? Disons Admin pour l'instant
+    if doc.to_dict()["admin_uid"] != uid: raise HTTPException(403, "Not admin")
+    
+    # On ajoute aux "invited"
+    ref.update({
+        "invited": firestore.ArrayUnion(data.members)
+    })
+    return {"ok": True}
+
+@app.post("/groups/kick/{group_id}")
+async def kick_group_member(group_id: str, data: GroupKickMember, uid: str = Depends(get_uid)):
+    ref = db.collection("groups").document(group_id)
+    doc = ref.get()
+    if not doc.exists: raise HTTPException(404, "Groupe introuvable")
+    
+    # Vérif Admin
+    if doc.to_dict()["admin_uid"] != uid: 
+        raise HTTPException(403, "Seul l'admin peut exclure un membre")
+    
+    # On retire le membre
+    ref.update({
+        "members": firestore.ArrayRemove([data.member_uid])
+    })
+    return {"ok": True}
 
 @app.get("/friends/status/{target}")
 async def friend_status(target: str, uid: str = Depends(get_uid)):

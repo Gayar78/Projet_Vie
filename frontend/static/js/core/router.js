@@ -3,7 +3,6 @@ import { pages }      from '../ui/pages/_index.js';
 import { renderPage } from '../ui/nav.js';
 import { sideBar }    from '../ui/sidebar.js';
 import { api }        from './api.js';
-import { initBackground } from '../ui/background.js';
 
 const ROOT_SEL = '#app';
 
@@ -27,7 +26,6 @@ export function initRouter () {
       app.innerHTML = `<div id="router-view" class="page-enter w-full min-h-screen pb-24 lg:pb-0">${html}</div>`;
       
       renderPage(location.pathname);
-      initBackground();
       
       requestAnimationFrame(() => {
           if (window.VanillaTilt) {

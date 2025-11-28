@@ -8,14 +8,14 @@ export const RANK_COLORS = {
   'maitre': '#a855f7', 'grandmaitre': '#ef4444', 'challenger': '#facc15'
 };
 
-// 2. CONSTANTES DE CALCUL (Basées sur le Backend)
-const POINTS_PER_EXO = 650; // Score Elite par exercice
+// 2. CONSTANTES DE CALCUL
+const POINTS_PER_EXO = 650;
 const MAX_POINTS = {
     global: 10000,
-    muscu:  POINTS_PER_EXO * 8, // 5200 pts
-    street: POINTS_PER_EXO * 5, // 3250 pts
-    cardio: POINTS_PER_EXO * 3, // 1950 pts
-    exo:    POINTS_PER_EXO      // 650 pts
+    muscu:  POINTS_PER_EXO * 8, 
+    street: POINTS_PER_EXO * 5, 
+    cardio: POINTS_PER_EXO * 3, 
+    exo:    POINTS_PER_EXO      
 };
 
 // Helper pour la couleur
@@ -34,10 +34,9 @@ export function getRankColor(rankName) {
     return '#ffffff';
 }
 
-// 3. NOUVELLE LOGIQUE DE RANG CONTEXTUEL
+// 3. LOGIQUE RANG
 export function rankFromPoints(score, contextMax = 10000) {
     const normalizedScore = (score / contextMax) * 10000;
-
     if (normalizedScore < 1500) return 'Fer';
     if (normalizedScore < 3500) return 'Bronze';
     if (normalizedScore < 5500) return 'Argent';
@@ -92,18 +91,26 @@ export default function leaderboardPage () {
   return /* html */`
 <section class="page-enter relative min-h-[calc(100vh-160px)] px-6 pb-20 flex flex-col items-center text-white">
   
-  <div class="mt-20 mb-12 text-center">
+  <div class="mt-20 mb-8 text-center">
       <h1 class="text-5xl md:text-7xl font-black tracking-tight mb-4">
         <span class="bg-clip-text text-transparent bg-gradient-to-r from-white via-pink-200 to-pink-500 filter drop-shadow-lg">
             LEADERBOARD
         </span>
       </h1>
-      <p class="text-gray-400 text-lg max-w-xl mx-auto">
-        Comparez vos performances. Le rang s'adapte à la discipline affichée.
-      </p>
   </div>
 
-  <!-- Filtres -->
+  <!-- SÉLECTEUR DE VUE (GLOBAL / GROUPE) -->
+  <div class="mb-8 z-30 relative w-full max-w-xs">
+    <button id="view-selector-btn" class="w-full flex items-center justify-between px-6 py-3 rounded-xl bg-white/10 border border-white/10 hover:bg-white/15 transition text-white font-bold">
+        <span id="view-label">🌍 Classement Mondial</span>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+    </button>
+    <div id="view-menu" class="absolute top-full left-0 w-full mt-2 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden hidden">
+        <!-- Injecté par JS -->
+    </div>
+  </div>
+
+  <!-- FILTRES CLASSIQUES -->
   <div class="flex flex-wrap justify-center gap-4 mb-10 relative z-20">
     ${['gender', 'cat','metric'].map(t=>`
       <div id="${t}-dd" class="relative group">
@@ -124,10 +131,8 @@ export default function leaderboardPage () {
       </div>`).join('')}
   </div>
 
-  <!-- Layout Grille -->
+  <!-- TABLEAU -->
   <div class="w-full max-w-7xl grid lg:grid-cols-[1fr_320px] gap-8">
-    
-    <!-- TABLEAU -->
     <div class="liquid-glass-card rounded-2xl overflow-hidden flex flex-col h-[600px]"
          data-tilt data-tilt-glare data-tilt-max-glare="0.05" data-tilt-scale="1.00">
         
@@ -145,94 +150,108 @@ export default function leaderboardPage () {
         </div>
     </div>
 
-    <!-- SIDE PANEL -->
     <div class="flex flex-col gap-6">
-      <div class="liquid-glass-card p-6 rounded-2xl space-y-4"
-           data-tilt data-tilt-glare data-tilt-max-glare="0.05" data-tilt-scale="1.02">
-        
-        <!-- ICONE INFO MODIFIÉE -->
-        <h3 class="text-lg font-bold text-white flex items-center gap-2">
-            <svg class="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            Info
-        </h3>
-        
+      <div class="liquid-glass-card p-6 rounded-2xl space-y-4" data-tilt data-tilt-glare data-tilt-max-glare="0.05" data-tilt-scale="1.02">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2"><svg class="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Info</h3>
         <div id="activity-feed" class="space-y-3 text-sm text-gray-400 leading-relaxed"></div>
       </div>
     </div>
-
   </div>
 </section>`
 }
 
-/* LOGIQUE FILTRES */
+/* LOGIQUE FILTRES ET GROUPES */
+let currentGroupId = null; // Null = Global
+
 const show = m => { m.classList.remove('opacity-0','scale-95','pointer-events-none'); m.classList.add('opacity-100','scale-100'); m.previousElementSibling.querySelector('svg')?.classList.add('rotate-180'); }
 const hide = m => { m.classList.add('opacity-0','scale-95','pointer-events-none'); m.classList.remove('opacity-100','scale-100'); m.previousElementSibling.querySelector('svg')?.classList.remove('rotate-180'); }
 
-export function initLeaderboardFilters () {
+export async function initLeaderboardFilters () {
   const genderBtn = document.getElementById('gender-btn'), genderLab = document.getElementById('gender-label'), genderMenu = document.getElementById('gender-menu');
   const catBtn = document.getElementById('cat-btn'), catLab = document.getElementById('cat-label'), catMenu = document.getElementById('cat-menu');
   const metBtn = document.getElementById('metric-btn'), metLab = document.getElementById('metric-label'), metMenu = document.getElementById('metric-menu');
+  const viewBtn = document.getElementById('view-selector-btn'), viewMenu = document.getElementById('view-menu'), viewLabel = document.getElementById('view-label');
 
   if (!catBtn) return;
 
   let currentGender = 'all', currentCat = 'general', currentMet = 'general';
+
+  // 1. Charger les Groupes
+  try {
+      const groupsData = await api('/groups', null, 'GET');
+      let html = `<div class="px-4 py-3 hover:bg-white/10 cursor-pointer text-sm font-bold text-white border-b border-white/10" onclick="selectGroup(null, '🌍 Classement Mondial')">🌍 Classement Mondial</div>`;
+      if (groupsData.member.length > 0) {
+          html += `<div class="px-4 py-2 text-[10px] uppercase font-bold text-gray-500 bg-black/20">Mes Groupes</div>`;
+          html += groupsData.member.map(g => `<div class="px-4 py-3 hover:bg-pink-500/20 cursor-pointer text-sm font-bold text-gray-300 hover:text-pink-400 transition" onclick="selectGroup('${g.id}', '${g.name}')">${g.name}</div>`).join('');
+      }
+      viewMenu.innerHTML = html;
+
+      // --- AUTO-SELECT GROUP FROM URL ---
+      const params = new URLSearchParams(window.location.search);
+      const urlGroupId = params.get('group');
+      if (urlGroupId) {
+          const targetGroup = groupsData.member.find(g => g.id === urlGroupId);
+          if (targetGroup) {
+              selectGroup(targetGroup.id, targetGroup.name);
+          }
+      }
+
+  } catch (e) {}
+
+  // Fonction globale pour le clic dans le HTML injecté
+  window.selectGroup = (id, name) => {
+      currentGroupId = id;
+      viewLabel.textContent = name;
+      viewMenu.classList.add('hidden');
+      triggerLoad();
+  };
+
+  if(viewBtn) viewBtn.onclick = () => viewMenu.classList.toggle('hidden');
+
+  // 2. Init Filtres
   const genders = { all: 'Mixte', M: 'Hommes', F: 'Femmes' };
   const itemClass = "block px-6 py-3 text-sm text-gray-300 hover:bg-pink-500/10 hover:text-white transition-colors cursor-pointer border-b border-white/5 last:border-0";
-  
   genderMenu.innerHTML = Object.entries(genders).map(([k,v])=>`<div data-gender="${k}" class="${itemClass}">${v}</div>`).join('');
   catMenu.innerHTML = Object.entries(categories).map(([k,c])=>`<div data-cat="${k}" class="${itemClass}">${c.label}</div>`).join('');
   const fillMetric = catKey => { metMenu.innerHTML = categories[catKey].sub.map(s=>`<div data-met="${s.value}" class="${itemClass}">${s.label}</div>`).join(''); }
-  
   genderLab.textContent = genders[currentGender]; catLab.textContent = categories[currentCat].label; metLab.textContent = categories[currentCat].sub[0].label; fillMetric(currentCat);
-
-  const toggle = (btn,menu)=>{
-    const isOpen = menu.classList.contains('opacity-100');
-    if (isOpen) hide(menu); else { show(menu); [genderMenu, catMenu, metMenu].forEach(m => { if (m !== menu) hide(m); }); }
-    setTimeout(()=>{const away=e=>{if(!menu.contains(e.target)&& !btn.contains(e.target)){hide(menu); document.removeEventListener('click',away)}}; document.addEventListener('click',away)},0)
-  }
-  
+  const toggle = (btn,menu)=>{ const isOpen = menu.classList.contains('opacity-100'); if (isOpen) hide(menu); else { show(menu); [genderMenu, catMenu, metMenu].forEach(m => { if (m !== menu) hide(m); }); } setTimeout(()=>{const away=e=>{if(!menu.contains(e.target)&& !btn.contains(e.target)){hide(menu); document.removeEventListener('click',away)}}; document.addEventListener('click',away)},0) }
   genderBtn.onclick = () => toggle(genderBtn, genderMenu); catBtn.onclick = () => toggle(catBtn,catMenu); metBtn.onclick = () => toggle(metBtn,metMenu);
-  const triggerLoad = () => loadLeaderboard(currentGender, currentCat, currentMet);
+  
+  const triggerLoad = () => loadLeaderboard(currentGender, currentCat, currentMet, currentGroupId);
 
   genderMenu.onclick = e=>{ const a=e.target.closest('[data-gender]'); if(!a) return; currentGender = a.dataset.gender; genderLab.textContent = genders[currentGender]; hide(genderMenu); triggerLoad(); }
   catMenu.onclick = e=>{ const a=e.target.closest('[data-cat]'); if(!a) return; currentCat=a.dataset.cat; catLab.textContent=categories[currentCat].label; hide(catMenu); currentMet=categories[currentCat].sub[0].value; metLab.textContent=categories[currentCat].sub[0].label; fillMetric(currentCat); triggerLoad(); }
   metMenu.onclick = e=>{ const a=e.target.closest('[data-met]'); if(!a) return; currentMet=a.dataset.met; metLab.textContent=categories[currentCat].sub.find(s=>s.value===currentMet).label; hide(metMenu); triggerLoad(); }
 }
 
-/* CHARGEMENT TABLEAU */
-export async function loadLeaderboard (gender = 'all', cat='general', metric='general') {
+/* CHARGEMENT TABLEAU AVEC GROUPE */
+export async function loadLeaderboard (gender = 'all', cat='general', metric='general', groupId = null) {
   const myId = localStorage.getItem('userId')
   const tbody = document.getElementById('leaderboard-body')
   if (!tbody) return
 
-  // Skeletons
   tbody.innerHTML = Array(6).fill(0).map(() => `<tr class="border-b border-white/5"><td class="py-4 pl-4"><div class="skeleton w-8 h-8 rounded-lg mx-auto"></div></td><td class="py-3 flex items-center gap-4"><div class="skeleton w-10 h-10 rounded-full"></div><div class="flex flex-col gap-2"><div class="skeleton w-32 h-3 rounded"></div><div class="skeleton w-16 h-2 rounded"></div></div></td><td><div class="skeleton w-16 h-4 mx-auto rounded"></div></td><td class="pr-6"><div class="skeleton w-16 h-4 ml-auto rounded"></div></td></tr>`).join('');
 
   try {
-    const { list } = await api(`/leaderboard?gender=${gender}&cat=${cat}&metric=${metric}`, null, 'GET')
-    if (!Array.isArray(list)) throw new Error('Bad payload')
-    list.sort((a,b)=>b.points-a.points)
-    
-    if (list.length === 0) { tbody.innerHTML = `<tr><td colspan="4" class="p-10 text-center text-gray-500">Aucun athlète classé pour le moment.</td></tr>`; return; }
+    // AJOUT DU PARAMETRE GROUP_ID
+    let url = `/leaderboard?gender=${gender}&cat=${cat}&metric=${metric}`;
+    if (groupId) url += `&group_id=${groupId}`;
 
-    // 4. DÉTERMINATION DU PLAFOND DE POINTS (CONTEXTE)
-    let contextMax = MAX_POINTS.global; // Par défaut 10000
+    const { list } = await api(url, null, 'GET')
+    if (!Array.isArray(list)) throw new Error('Bad payload')
     
-    if (cat !== 'general') {
-        if (metric === 'total') {
-            // Si on regarde le total d'une discipline (Muscu, Street, Cardio)
-            contextMax = MAX_POINTS[cat] || 10000;
-        } else {
-            // Si on regarde un exercice spécifique (Bench, Run...)
-            contextMax = MAX_POINTS.exo; // 650 pts
-        }
-    }
+    // Tri JS si c'est un groupe
+    if (groupId) list.sort((a,b)=>b.points-a.points);
+    
+    if (list.length === 0) { tbody.innerHTML = `<tr><td colspan="4" class="p-10 text-center text-gray-500">Aucun athlète classé.</td></tr>`; return; }
+
+    let contextMax = MAX_POINTS.global; 
+    if (cat !== 'general') { if (metric === 'total') { contextMax = MAX_POINTS[cat] || 10000; } else { contextMax = MAX_POINTS.exo; } }
 
     tbody.innerHTML = list.map((u,i)=> {
-        // 5. CALCUL DU RANG CONTEXTUEL
         const rankName = rankFromPoints(u.points, contextMax);
         const rankColor = getRankColor(rankName);
-
         let rankSlug = rankName.toLowerCase().replace(' ', '').replace('é', 'e').replace('è', 'e').replace('â', 'a').replace('î', 'i');
         if(rankSlug.includes('grand')) rankSlug = 'grandmaster';
         else if(rankSlug.includes('maitre')) rankSlug = 'master';
