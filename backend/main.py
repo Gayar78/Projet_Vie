@@ -2,13 +2,12 @@
 from fastapi import FastAPI, HTTPException, Request, Depends, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import firebase_admin, json, time, io, math
+import firebase_admin, json, time, io, math, os
 from firebase_admin import credentials, auth, firestore, storage
 from PIL import Image
 import enum
 import requests
-import os
-import json 
+from pathlib import Path
 
 # ─── INITIALISATION FIREBASE (Compatible Local + Production) ─────────────
 try:
@@ -19,6 +18,13 @@ try:
         # PRODUCTION : On charge depuis la variable Render
         print("🌍 Mode Production détecté (Variable d'environnement)")
         cred_dict = json.loads(firebase_creds_env)
+        
+        # --- CORRECTION DU BUG JWT SIGNATURE ---
+        # Render transforme parfois les vrais sauts de ligne en caractères "\n". On les remet d'aplomb.
+        if "private_key" in cred_dict:
+            cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+        # ---------------------------------------
+        
         cred = credentials.Certificate(cred_dict)
     else:
         # DÉVELOPPEMENT : On cherche le fichier local
@@ -35,33 +41,31 @@ try:
         
     db = firestore.client()
     bucket = storage.bucket()
-
+    
+    # ... (La suite pour FIREBASE_KEY reste inchangée) ...
     # 2. Récupération de la clé API Web (Login)
-    # D'abord via variable d'env, sinon via fichier
     FIREBASE_KEY = os.environ.get("FIREBASE_API_KEY")
     
     if not FIREBASE_KEY:
-        # Si pas de variable, on cherche le fichier config
-        config_path = Path("firebase_config.json")
-        # Si on est dans backend/ on remonte peut-être, ou on cherche au même niveau
-        # Pour être sûr, on tente le chemin relatif simple
-        if config_path.exists():
-             with open(config_path) as f:
+        try:
+            with open("firebase_config.json") as f:
                 FIREBASE_KEY = json.load(f)["apiKey"]
-        else:
-             # Fallback si on lance depuis la racine
-             with open("firebase_config.json") as f:
+        except:
+            with open("backend/firebase_config.json") as f:
                 FIREBASE_KEY = json.load(f)["apiKey"]
             
     print("✅ Connexion Firebase établie.")
 
 except Exception as e:
     print(f"❌ Erreur Critique Firebase Init: {e}")
-    # On laisse l'app démarrer pour voir les logs sur Render, mais les appels DB échoueront
 
 app = FastAPI()
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ─── CONSTANTES & CONFIGURATION ──────────────────────────────────────────
