@@ -8,6 +8,7 @@ from PIL import Image
 import enum
 import requests
 from pathlib import Path
+import os
 
 # ─── INITIALISATION FIREBASE (Compatible Local + Production) ─────────────
 try:
@@ -750,3 +751,42 @@ async def get_profile_activity(uid: str = Depends(get_uid)):
         activities.append(d)
 
     return activities
+
+
+# --- ROUTE DE TEST (À SUPPRIMER PLUS TARD) ---
+@app.get("/debug/firebase")
+async def debug_firebase():
+    """
+    Vérifie la présence de la clé et la connexion au Bucket.
+    """
+    status = {
+        "step_1_key_file": "Inconnu",
+        "step_2_bucket_name": app_options.get('storageBucket'),
+        "step_3_write_test": "En attente",
+        "error": None
+    }
+
+    # 1. Vérifier si le fichier existe sur le disque
+    file_path = "firebase_service_account.json"
+    if os.path.exists(file_path):
+        status["step_1_key_file"] = "✅ PRÉSENT (Fichier trouvé)"
+    else:
+        # On liste les fichiers pour voir où on est
+        files_here = os.listdir('.')
+        status["step_1_key_file"] = f"❌ ABSENT. Fichiers présents ici : {files_here}"
+        return status
+
+    # 2. Tester l'écriture dans le Bucket
+    try:
+        test_blob = bucket.blob("debug_test.txt")
+        test_blob.upload_from_string("Ceci est un test de connexion depuis Render.")
+        # On essaie de le rendre public pour être sûr que les droits sont OK
+        test_blob.make_public()
+        
+        status["step_3_write_test"] = f"✅ SUCCÈS ! Fichier écrit. URL : {test_blob.public_url}"
+    
+    except Exception as e:
+        status["step_3_write_test"] = "❌ ÉCHEC"
+        status["error"] = str(e)
+
+    return status
