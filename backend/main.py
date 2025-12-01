@@ -60,9 +60,16 @@ except Exception as e:
     print(f"❌ Erreur Critique Firebase Init: {e}")
 
 app = FastAPI()
+
+origins = [
+    "http://localhost:5173",                # Pour tes tests locaux
+    "https://ton-site.hostingerapp.com",    # REMPLACE PAR TON VRAI DOMAINE HOSTINGER
+    "https://www.ton-domaine.com"           # Si tu as un nom de domaine perso
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins, # Utilise la liste spécifique
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
