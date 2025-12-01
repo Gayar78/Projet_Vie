@@ -102,7 +102,7 @@ export default function leaderboardPage () {
   <!-- SÉLECTEUR DE VUE (GLOBAL / GROUPE) -->
   <div class="mb-8 z-30 relative w-full max-w-xs">
     <button id="view-selector-btn" class="w-full flex items-center justify-between px-6 py-3 rounded-xl bg-white/10 border border-white/10 hover:bg-white/15 transition text-white font-bold">
-        <span id="view-label">🌍 Classement Mondial</span>
+        <span id="view-label">Classement Mondial</span>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
     </button>
     <div id="view-menu" class="absolute top-full left-0 w-full mt-2 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden hidden">
@@ -179,7 +179,7 @@ export async function initLeaderboardFilters () {
   // 1. Charger les Groupes
   try {
       const groupsData = await api('/groups', null, 'GET');
-      let html = `<div class="px-4 py-3 hover:bg-white/10 cursor-pointer text-sm font-bold text-white border-b border-white/10" onclick="selectGroup(null, '🌍 Classement Mondial')">🌍 Classement Mondial</div>`;
+      let html = `<div class="px-4 py-3 hover:bg-white/10 cursor-pointer text-sm font-bold text-white border-b border-white/10" onclick="selectGroup(null, 'Classement Mondial')">🌍 Classement Mondial</div>`;
       if (groupsData.member.length > 0) {
           html += `<div class="px-4 py-2 text-[10px] uppercase font-bold text-gray-500 bg-black/20">Mes Groupes</div>`;
           html += groupsData.member.map(g => `<div class="px-4 py-3 hover:bg-pink-500/20 cursor-pointer text-sm font-bold text-gray-300 hover:text-pink-400 transition" onclick="selectGroup('${g.id}', '${g.name}')">${g.name}</div>`).join('');

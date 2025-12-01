@@ -69,7 +69,7 @@ function mountNavOnce () {
   if (!document.getElementById('mobile-nav')) document.body.insertAdjacentHTML('beforeend', MOBILE_NAV);
   if (!document.getElementById('search-container')) document.body.insertAdjacentHTML('beforeend', SEARCH_BAR_HTML);
 
-  // Search Logic (inchangé)
+  // Search Logic
   const searchInput = document.getElementById('navbar-search');
   const resultsDiv = document.getElementById('navbar-search-results');
   if (searchInput) {
@@ -91,18 +91,35 @@ function mountNavOnce () {
 export async function updateNavHTML () {
   const navRight = document.getElementById('nav-right-desktop');
   if (!navRight) return;
+  
   const logged = !!localStorage.getItem('token');
 
+  // 1. Si pas connecté
   if (!logged) {
     navRight.innerHTML = `<a href="/login" data-link class="font-semibold text-gray-300 hover:text-white transition">Log&nbsp;In</a>`;
     return;
   }
 
-  const displayName = localStorage.getItem('displayName') || 'Account';
+  // 2. Si connecté, on récupère le nom
+  let displayName = localStorage.getItem('displayName');
+
+  // CORRECTION ICI : Si le nom n'est pas en cache, on va le chercher
+  if (!displayName) {
+      try {
+          const u = await api('/profile', null, 'GET');
+          displayName = u.displayName || u.email.split('@')[0];
+          localStorage.setItem('displayName', displayName); // On sauvegarde pour la prochaine fois
+      } catch (e) {
+          displayName = 'Compte'; // Fallback
+      }
+  }
+
+  // 3. Affichage du bouton utilisateur
   navRight.innerHTML = `
   <div id="account-wrapper" class="relative">
     <button id="account-btn" class="flex items-center gap-3 pl-5 pr-4 py-1.5 rounded-full bg-gray-800/50 hover:bg-gray-800 border border-white/10 transition">
-      <span class="font-semibold text-gray-100">${displayName}</span>
+      <span class="font-semibold text-gray-100 max-w-[150px] truncate">${displayName}</span>
+      <svg class="w-4 h-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.08l3.71-3.85a.75.75 0 1 1 1.08 1.04l-4.24 4.4a.75.75 0 0 1-1.08 0l-4.24-4.4a.75.75 0 0 1 .02-1.06z" clip-rule="evenodd" /></svg>
     </button>
     <div id="account-menu" class="absolute right-0 mt-3 w-48 origin-top-right rounded-xl bg-gray-900/95 backdrop-blur-xl ring-1 ring-white/10 shadow-2xl opacity-0 scale-95 pointer-events-none transition-all duration-200 ease-out">
       <a href="/profile" data-link class="block px-5 py-3 text-sm text-gray-200 hover:bg-white/10 rounded-t-xl">Profile</a>
@@ -110,11 +127,41 @@ export async function updateNavHTML () {
     </div>
   </div>`;
   
-  // Logout Logic Desktop
+  // Logique du menu déroulant
   const btn = navRight.querySelector('#account-btn');
   const menu = navRight.querySelector('#account-menu');
-  if(btn) btn.onclick = () => { menu.classList.toggle('opacity-0'); menu.classList.toggle('pointer-events-none'); };
-  navRight.querySelector('#logout')?.addEventListener('click', e => { e.preventDefault(); localStorage.removeItem('token'); updateNavHTML(); history.pushState(null, '', '/'); dispatchEvent(new PopStateEvent('popstate')); });
+  
+  if(btn && menu) {
+      const toggleMenu = (e) => {
+          e.stopPropagation();
+          const isOpen = !menu.classList.contains('opacity-0');
+          if (isOpen) {
+              menu.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
+          } else {
+              menu.classList.remove('opacity-0', 'scale-95', 'pointer-events-none');
+          }
+      };
+
+      btn.onclick = toggleMenu;
+
+      // Fermer si on clique ailleurs
+      document.addEventListener('click', (e) => {
+          if (!btn.contains(e.target) && !menu.contains(e.target)) {
+              menu.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
+          }
+      });
+  }
+
+  // Logique Logout
+  navRight.querySelector('#logout')?.addEventListener('click', e => { 
+      e.preventDefault(); 
+      localStorage.removeItem('token'); 
+      localStorage.removeItem('displayName'); // Important de vider le nom aussi
+      localStorage.removeItem('userId');
+      updateNavHTML(); 
+      history.pushState(null, '', '/'); 
+      dispatchEvent(new PopStateEvent('popstate')); 
+  });
 }
 
 export function renderPage (path) { mountNavOnce(); updateNavHTML(); bindForms(path); }

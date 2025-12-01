@@ -6,20 +6,58 @@ import firebase_admin, json, time, io, math
 from firebase_admin import credentials, auth, firestore, storage
 from PIL import Image
 import enum
-import requests  # <--- AJOUTÉ : Indispensable pour le login
+import requests
+import os
+import json 
 
-# ─── INITIALISATION FIREBASE ─────────────────────────────────────────────
+# ─── INITIALISATION FIREBASE (Compatible Local + Production) ─────────────
 try:
-    cred = credentials.Certificate("firebase_service_account.json")
+    # 1. On regarde si les crédits sont dans les variables d'environnement (Render)
+    firebase_creds_env = os.environ.get("FIREBASE_CREDENTIALS")
+    
+    if firebase_creds_env:
+        # PRODUCTION : On charge depuis la variable Render
+        print("🌍 Mode Production détecté (Variable d'environnement)")
+        cred_dict = json.loads(firebase_creds_env)
+        cred = credentials.Certificate(cred_dict)
+    else:
+        # DÉVELOPPEMENT : On cherche le fichier local
+        print("💻 Mode Développement détecté (Fichier local)")
+        ROOT_DIR = Path(__file__).resolve().parent.parent
+        SERVICE_KEY = ROOT_DIR / "firebase_service_account.json"
+        cred = credentials.Certificate(SERVICE_KEY)
+
     app_options = {'storageBucket': 'projetvie-212e4.firebasestorage.app'}
-    firebase_admin.initialize_app(cred, app_options)
+    
+    # On initialise seulement si ce n'est pas déjà fait
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred, app_options)
+        
     db = firestore.client()
     bucket = storage.bucket()
-except Exception as e:
-    print(f"⚠️ Warning Firebase Init: {e}")
 
-with open("firebase_config.json") as f:
-    FIREBASE_KEY = json.load(f)["apiKey"]
+    # 2. Récupération de la clé API Web (Login)
+    # D'abord via variable d'env, sinon via fichier
+    FIREBASE_KEY = os.environ.get("FIREBASE_API_KEY")
+    
+    if not FIREBASE_KEY:
+        # Si pas de variable, on cherche le fichier config
+        config_path = Path("firebase_config.json")
+        # Si on est dans backend/ on remonte peut-être, ou on cherche au même niveau
+        # Pour être sûr, on tente le chemin relatif simple
+        if config_path.exists():
+             with open(config_path) as f:
+                FIREBASE_KEY = json.load(f)["apiKey"]
+        else:
+             # Fallback si on lance depuis la racine
+             with open("firebase_config.json") as f:
+                FIREBASE_KEY = json.load(f)["apiKey"]
+            
+    print("✅ Connexion Firebase établie.")
+
+except Exception as e:
+    print(f"❌ Erreur Critique Firebase Init: {e}")
+    # On laisse l'app démarrer pour voir les logs sur Render, mais les appels DB échoueront
 
 app = FastAPI()
 app.add_middleware(
@@ -221,6 +259,11 @@ async def login(u: UserLoginIn):
 async def profile(uid: str = Depends(get_uid)):
     doc = db.collection("users").document(uid).get()
     data = doc.to_dict() or {}
+    
+    # AJOUT DE L'ID DANS LA RÉPONSE
+    data["id"] = uid 
+    data["uid"] = uid # Sécurité doublon
+    
     scores = {s.id: s.to_dict() for s in db.collection("users").document(uid).collection("scores").stream()}
     data["scores"] = scores
     data["points"] = scores.get("general", {}).get("general", 0)
