@@ -10,61 +10,47 @@ import requests
 from pathlib import Path
 import os
 
-# ─── INITIALISATION FIREBASE (Compatible Local + Production) ─────────────
+# ─── INITIALISATION FIREBASE ROBUSTE ─────────────────────────────────────
 try:
-    # 1. On regarde si les crédits sont dans les variables d'environnement (Render)
-    firebase_creds_env = os.environ.get("FIREBASE_CREDENTIALS")
+    # 1. Définir les chemins possibles pour la clé
+    possible_paths = [
+        "firebase_service_account.json",              # Chemin pour ton PC (Local)
+        "/etc/secrets/firebase_service_account.json"  # Chemin standard pour Render
+    ]
     
-    if firebase_creds_env:
-        # PRODUCTION : On charge depuis la variable Render
-        print("🌍 Mode Production détecté (Variable d'environnement)")
-        cred_dict = json.loads(firebase_creds_env)
-        
-        # --- CORRECTION DU BUG JWT SIGNATURE ---
-        # Render transforme parfois les vrais sauts de ligne en caractères "\n". On les remet d'aplomb.
-        if "private_key" in cred_dict:
-            cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
-        # ---------------------------------------
-        
-        cred = credentials.Certificate(cred_dict)
-    else:
-        # DÉVELOPPEMENT : On cherche le fichier local
-        print("💻 Mode Développement détecté (Fichier local)")
-        ROOT_DIR = Path(__file__).resolve().parent.parent
-        SERVICE_KEY = ROOT_DIR / "firebase_service_account.json"
-        cred = credentials.Certificate(SERVICE_KEY)
+    # 2. Trouver le bon chemin
+    certificate_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            certificate_path = path
+            print(f"✅ Clé trouvée ici : {path}")
+            break
+    
+    if not certificate_path:
+        # Si on ne trouve pas, on liste les dossiers pour le debug dans les logs Render
+        print(f"❌ Clé introuvable. Dossier actuel : {os.getcwd()}")
+        print(f"❌ Contenu : {os.listdir('.')}")
+        if os.path.exists("/etc/secrets"):
+            print(f"❌ Contenu de /etc/secrets : {os.listdir('/etc/secrets')}")
+        raise FileNotFoundError("Impossible de trouver firebase_service_account.json")
 
+    # 3. Initialiser Firebase
+    cred = credentials.Certificate(certificate_path)
     app_options = {'storageBucket': 'projetvie-212e4.firebasestorage.app'}
+    firebase_admin.initialize_app(cred, app_options)
     
-    # On initialise seulement si ce n'est pas déjà fait
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(cred, app_options)
-        
     db = firestore.client()
     bucket = storage.bucket()
-    
-    # ... (La suite pour FIREBASE_KEY reste inchangée) ...
-    # 2. Récupération de la clé API Web (Login)
-    FIREBASE_KEY = os.environ.get("FIREBASE_API_KEY")
-    
-    if not FIREBASE_KEY:
-        try:
-            with open("firebase_config.json") as f:
-                FIREBASE_KEY = json.load(f)["apiKey"]
-        except:
-            with open("backend/firebase_config.json") as f:
-                FIREBASE_KEY = json.load(f)["apiKey"]
-            
-    print("✅ Connexion Firebase établie.")
+    print("🚀 Firebase connecté avec succès.")
 
 except Exception as e:
-    print(f"❌ Erreur Critique Firebase Init: {e}")
+    print(f"⚠️ CRITICAL ERROR Firebase Init: {e}")
 
 app = FastAPI()
 
 origins = [
     "http://localhost:5173",                # Pour tes tests locaux
-    "https://ton-site.hostingerapp.com",    # REMPLACE PAR TON VRAI DOMAINE HOSTINGER
+    "https://draftprime.fr",    # REMPLACE PAR TON VRAI DOMAINE HOSTINGER
     "https://www.ton-domaine.com"           # Si tu as un nom de domaine perso
 ]
 
