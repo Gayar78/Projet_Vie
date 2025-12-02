@@ -8,6 +8,9 @@
   <style>
     body { background-color: #0f172a; color: white; font-family: system-ui, sans-serif; }
     .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    /* Masquer la scrollbar pour un look plus clean */
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
 <body class="min-h-screen p-6">
@@ -46,9 +49,9 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth.js";
 
-    // --- AJOUT IMPORTANT : L'URL DE TON BACKEND ---
+    // --- CONFIGURATION API ---
+    // C'est ici que la magie opère : on pointe vers le vrai backend Render
     const API_URL = "https://draftprime-api.onrender.com"; 
-    // ----------------------------------------------
 
     const firebaseConfig = {
       apiKey: "AIzaSyDOqn7DJSB-FtTfSj1-6RE8vzznyxNhjNw",
@@ -63,7 +66,7 @@
     const loginDiv = document.getElementById('login-admin');
     const listDiv = document.getElementById('contributions-list');
     
-    // LOGIN
+    // GESTION DU LOGIN
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       try {
@@ -73,91 +76,118 @@
       }
     });
 
+    // ÉCOUTEUR D'ÉTAT (Connecté / Pas connecté)
     onAuthStateChanged(auth, async (user) => {
       if (user) {
+        // On récupère le token pour pouvoir parler au Backend Python
         currentToken = await user.getIdToken();
         loginDiv.classList.add('hidden');
         listDiv.classList.remove('hidden');
         loadData();
+      } else {
+        loginDiv.classList.remove('hidden');
+        listDiv.classList.add('hidden');
       }
     });
 
     document.getElementById('refresh-btn').addEventListener('click', loadData);
 
+    // CHARGEMENT DES DONNÉES
     async function loadData() {
-        listDiv.innerHTML = '<p class="text-center text-gray-500">Chargement...</p>';
+        listDiv.innerHTML = '<p class="text-center text-gray-500 animate-pulse">Chargement des données...</p>';
         
-        // --- CORRECTION URL ICI ---
-        // On enlève '/api' et on met API_URL à la place
-        const res = await fetch(`${API_URL}/admin/pending_contributions`, { 
-            headers: { 'Authorization': currentToken } 
-        });
-        // --------------------------
+        try {
+            // Appel vers RENDER directement
+            const res = await fetch(`${API_URL}/admin/pending_contributions`, { 
+                headers: { 'Authorization': currentToken } 
+            });
+            
+            if (!res.ok) throw new Error(`Erreur Serveur: ${res.status}`);
+            
+            const data = await res.json();
+            
+            if(data.length === 0) {
+                listDiv.innerHTML = '<p class="text-center text-green-400 text-xl font-bold py-10">Tout est propre ! Aucune demande en attente.</p>';
+                return;
+            }
 
-        if (!res.ok) {
-            listDiv.innerHTML = `<p class="text-red-500 text-center">Erreur API: ${res.status}</p>`;
-            return;
-        }
-
-        const data = await res.json();
-        
-        if(data.length === 0) {
-            listDiv.innerHTML = '<p class="text-center text-green-400 text-xl font-bold">Tout est propre ! Aucune demande.</p>';
-            return;
-        }
-
-        listDiv.innerHTML = data.map(c => `
-            <div class="glass p-6 rounded-2xl relative group" id="card-${c.id}">
-                <!-- (Le reste de ton HTML d'affichage ne change pas) -->
-                <div class="flex justify-between items-start mb-4">
-                    <div>
-                        <p class="text-lg font-bold text-white">${c.author_name}</p>
-                        <p class="text-pink-400 text-sm font-bold uppercase tracking-wider">${c.category} / ${c.exercise}</p>
+            // Génération du HTML pour chaque carte
+            listDiv.innerHTML = data.map(c => `
+                <div class="glass p-6 rounded-2xl relative group" id="card-${c.id}">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <p class="text-lg font-bold text-white">${c.author_name || 'Inconnu'}</p>
+                            <p class="text-pink-400 text-sm font-bold uppercase tracking-wider">${c.category} / ${c.exercise}</p>
+                        </div>
+                        <a href="${c.video_url}" target="_blank" class="text-blue-400 hover:underline text-sm font-semibold flex items-center gap-1">
+                            Voir Vidéo <span class="text-xs">↗</span>
+                        </a>
                     </div>
-                    <a href="${c.video_url}" target="_blank" class="text-blue-400 hover:underline text-sm">Voir Vidéo ↗</a>
-                </div>
 
-                <div class="bg-black/40 p-4 rounded-lg border border-white/5 mb-4 grid grid-cols-2 gap-4 text-sm">
-                    <div><span class="text-gray-500">Poids:</span> <span class="text-white font-mono">${c.performance.weight || '-'} kg</span></div>
-                    <div><span class="text-gray-500">Reps:</span> <span class="text-white font-mono">${c.performance.reps || '-'}</span></div>
-                    <div><span class="text-gray-500">Temps:</span> <span class="text-white font-mono">${c.performance.time || '-'}</span></div>
-                    <div><span class="text-gray-500">Dist:</span> <span class="text-white font-mono">${c.performance.distance || '-'}</span></div>
-                    <div class="col-span-2"><span class="text-gray-500">Note:</span> <span class="text-gray-300 italic">"${c.performance.message || '...'}"</span></div>
-                </div>
+                    <div class="bg-black/40 p-4 rounded-lg border border-white/5 mb-4 grid grid-cols-2 gap-4 text-sm">
+                        <div><span class="text-gray-500">Poids:</span> <span class="text-white font-mono ml-2">${c.performance.weight || '-'} kg</span></div>
+                        <div><span class="text-gray-500">Reps:</span> <span class="text-white font-mono ml-2">${c.performance.reps || '-'}</span></div>
+                        <div><span class="text-gray-500">Temps:</span> <span class="text-white font-mono ml-2">${c.performance.time || '-'}</span></div>
+                        <div><span class="text-gray-500">Dist:</span> <span class="text-white font-mono ml-2">${c.performance.distance || '-'}</span></div>
+                        <div class="col-span-2 pt-2 border-t border-white/5 mt-2">
+                            <span class="text-gray-500">Note:</span> 
+                            <span class="text-gray-300 italic ml-2">"${c.performance.message || 'Aucun message'}"</span>
+                        </div>
+                    </div>
 
-                <div class="flex gap-3" id="actions-${c.id}">
-                    <button onclick="approve('${c.id}')" class="flex-1 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-bold transition">VALIDER</button>
-                    <button onclick="showReject('${c.id}')" class="flex-1 py-3 rounded-lg bg-red-600 hover:bg-red-500 font-bold transition">REFUSER</button>
-                </div>
+                    <div class="flex gap-3" id="actions-${c.id}">
+                        <button onclick="approve('${c.id}')" class="flex-1 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-bold transition text-white shadow-lg">VALIDER</button>
+                        <button onclick="showReject('${c.id}')" class="flex-1 py-3 rounded-lg bg-red-600 hover:bg-red-500 font-bold transition text-white shadow-lg">REFUSER</button>
+                    </div>
 
-                <div id="reject-form-${c.id}" class="hidden mt-4 pt-4 border-t border-white/10">
-                    <label class="block text-xs text-gray-400 mb-2">Raison du refus :</label>
-                    <select id="reason-select-${c.id}" class="w-full bg-black/50 border border-white/20 rounded p-2 text-sm mb-2 text-white">
-                        <option value="Vidéo incomplète ou coupée">Vidéo incomplète ou coupée</option>
-                        <option value="Amplitude de mouvement insuffisante">Amplitude de mouvement insuffisante</option>
-                        <option value="Angle de caméra inadapté">Angle de caméra inadapté</option>
-                        <option value="Poids/Charge non vérifiable">Poids/Charge non vérifiable</option>
-                        <option value="Autre (Préciser)">Autre (Préciser dans les standards)</option>
-                    </select>
-                    <div class="flex gap-2">
-                        <button onclick="confirmReject('${c.id}')" class="flex-1 py-2 bg-red-600 rounded text-sm font-bold">Confirmer le rejet</button>
-                        <button onclick="hideReject('${c.id}')" class="px-4 py-2 bg-white/10 rounded text-sm">Annuler</button>
+                    <!-- Formulaire de rejet caché -->
+                    <div id="reject-form-${c.id}" class="hidden mt-4 pt-4 border-t border-white/10">
+                        <label class="block text-xs text-gray-400 mb-2 font-bold uppercase">Raison du refus :</label>
+                        <select id="reason-select-${c.id}" class="w-full bg-black/50 border border-white/20 rounded p-3 text-sm mb-3 text-white focus:border-pink-500 outline-none">
+                            <option value="Vidéo incomplète ou coupée">Vidéo incomplète ou coupée</option>
+                            <option value="Amplitude de mouvement insuffisante">Amplitude de mouvement insuffisante</option>
+                            <option value="Angle de caméra inadapté">Angle de caméra inadapté</option>
+                            <option value="Poids/Charge non vérifiable">Poids/Charge non vérifiable</option>
+                            <option value="Autre (Préciser)">Autre (Préciser dans les standards)</option>
+                        </select>
+                        <div class="flex gap-2">
+                            <button onclick="confirmReject('${c.id}')" class="flex-1 py-2 bg-red-600 rounded text-sm font-bold hover:bg-red-500 text-white">Confirmer le rejet</button>
+                            <button onclick="hideReject('${c.id}')" class="px-4 py-2 bg-white/10 rounded text-sm hover:bg-white/20 text-gray-300">Annuler</button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        `).join('');
+            `).join('');
+
+        } catch (err) {
+            console.error(err);
+            listDiv.innerHTML = `<div class="bg-red-900/20 border border-red-500/50 p-4 rounded-xl text-center">
+                <p class="text-red-400 font-bold">Erreur de chargement</p>
+                <p class="text-xs text-red-300 mt-1">${err.message}</p>
+            </div>`;
+        }
     }
 
-    // --- CORRECTION URL AUSSI POUR LES ACTIONS ---
+    // FONCTIONS GLOBALES (Pour les boutons onclick)
+    
     window.approve = async (id) => {
-        if(!confirm("Valider cette perf ?")) return;
-        document.getElementById(`card-${id}`).style.opacity = "0.5";
+        if(!confirm("Êtes-vous sûr de vouloir valider cette performance ?")) return;
         
-        await fetch(`${API_URL}/admin/approve_contribution/${id}`, { // <--- ICI
-            method: 'POST', 
-            headers: { 'Authorization': currentToken } 
-        });
-        document.getElementById(`card-${id}`).remove();
+        const card = document.getElementById(`card-${id}`);
+        card.style.opacity = "0.5";
+        card.style.pointerEvents = "none";
+        
+        try {
+            await fetch(`${API_URL}/admin/approve_contribution/${id}`, { 
+                method: 'POST', 
+                headers: { 'Authorization': currentToken } 
+            });
+            card.remove();
+            checkIfEmpty();
+        } catch (e) {
+            alert("Erreur lors de la validation");
+            card.style.opacity = "1";
+            card.style.pointerEvents = "auto";
+        }
     };
 
     window.showReject = (id) => {
@@ -175,15 +205,30 @@
         const fd = new FormData();
         fd.append('reason', reason);
 
-        document.getElementById(`card-${id}`).style.opacity = "0.5";
-        
-        await fetch(`${API_URL}/admin/reject_contribution/${id}`, { // <--- ET ICI
-            method: 'POST', 
-            headers: { 'Authorization': currentToken },
-            body: fd
-        });
-        document.getElementById(`card-${id}`).remove();
+        const card = document.getElementById(`card-${id}`);
+        card.style.opacity = "0.5";
+        card.style.pointerEvents = "none";
+
+        try {
+            await fetch(`${API_URL}/admin/reject_contribution/${id}`, { 
+                method: 'POST', 
+                headers: { 'Authorization': currentToken },
+                body: fd
+            });
+            card.remove();
+            checkIfEmpty();
+        } catch (e) {
+            alert("Erreur lors du rejet");
+            card.style.opacity = "1";
+            card.style.pointerEvents = "auto";
+        }
     };
+
+    function checkIfEmpty() {
+        if (listDiv.children.length === 0) {
+            listDiv.innerHTML = '<p class="text-center text-green-400 text-xl font-bold py-10">Tout est propre ! Aucune demande en attente.</p>';
+        }
+    }
   </script>
 </body>
 </html>
