@@ -72,14 +72,11 @@ export function initRouter () {
         if (!userId) { await exitPromise; injectView(pages['/']()); return; }
 
         try {
-            const token = localStorage.getItem('token');
-            const headers = token ? {'Authorization': token} : {};
-            const r = await fetch(`/api/public_profile/${userId}`, { headers });
+            // CORRECTION CRITIQUE ICI : Utilisation de api() au lieu de fetch()
+            // Cela permet d'utiliser la bonne URL backend (Render) et d'éviter l'erreur "Unexpected token <"
+            const userData = await api(`/public_profile/${userId}`, null, 'GET');
             
-            if (r.status === 404) throw new Error("Utilisateur introuvable (404)");
-            if (!r.ok) throw new Error("Erreur serveur (" + r.status + ")");
-            
-            const userData = await r.json(); 
+            // On s'assure que l'ID est bien présent dans l'objet
             userData.id = userId;
             
             const pageMod = await import('../ui/pages/user_profile.js');

@@ -79,10 +79,15 @@ function mountNavOnce () {
           searchTimeout = setTimeout(async () => {
               const term = e.target.value.toLowerCase().trim();
               if (term.length < 1) { resultsDiv.innerHTML = ''; resultsDiv.classList.add('opacity-0', 'pointer-events-none'); return; }
-              const resp = await fetch(`/api/search_users?term=${term}`);
-              const users = await resp.json();
-              resultsDiv.innerHTML = users.length ? users.map(u => `<a href="/user/${u.id}" data-link class="block px-4 py-3 text-sm text-gray-200 hover:bg-white/10">${u.displayName}</a>`).join('') : '<p class="px-4 py-3 text-sm text-gray-500">Aucun résultat</p>';
-              resultsDiv.classList.remove('opacity-0', 'pointer-events-none');
+              
+              // CORRECTION ICI : Utilisation de api() au lieu de fetch()
+              try {
+                  const users = await api(`/search_users?term=${term}`, null, 'GET');
+                  resultsDiv.innerHTML = users.length ? users.map(u => `<a href="/user/${u.id}" data-link class="block px-4 py-3 text-sm text-gray-200 hover:bg-white/10">${u.displayName}</a>`).join('') : '<p class="px-4 py-3 text-sm text-gray-500">Aucun résultat</p>';
+                  resultsDiv.classList.remove('opacity-0', 'pointer-events-none');
+              } catch (error) {
+                  console.error("Erreur recherche:", error);
+              }
           }, 250);
       });
   }

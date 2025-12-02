@@ -1,6 +1,9 @@
 /* frontend/static/js/ui/pages/profile/settings.js */
 import { api } from '../../../core/api.js';
 
+// CORRECTION : URL du Backend pour les appels fetch manuels (Upload Avatar)
+const API_URL = "https://draftprime-api.onrender.com";
+
 export function mount(user) {
     // 1. Toggle Public/Privé
     const toggle = document.getElementById('public-profile-toggle');
@@ -84,7 +87,13 @@ export function mount(user) {
             const fd = new FormData(); fd.append('file', input.files[0]);
             feedback.textContent = 'Upload...';
             try {
-                const res = await fetch('/api/upload_avatar', { method: 'POST', headers: { 'Authorization': localStorage.getItem('token')||'' }, body: fd });
+                // CORRECTION ICI : Utilisation de API_URL au lieu de '/api'
+                const res = await fetch(`${API_URL}/upload_avatar`, { 
+                    method: 'POST', 
+                    headers: { 'Authorization': localStorage.getItem('token')||'' }, 
+                    body: fd 
+                });
+                
                 if (!res.ok) throw new Error();
                 const d = await res.json();
                 preview.src = d.photoURL;
