@@ -302,17 +302,50 @@ async def update_profile(data: dict, uid: str = Depends(get_uid)):
 
 @app.post("/upload_avatar")
 async def upload_avatar(file: UploadFile = File(...), uid: str = Depends(get_uid)):
-    if not file.content_type.startswith("image/"): raise HTTPException(400, "Image only")
-    img = Image.open(io.BytesIO(await file.read()))
-    img.thumbnail((512, 512))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    blob = bucket.blob(f"avatars/{uid}.jpg")
-    blob.upload_from_string(buf.getvalue(), content_type="image/jpeg")
-    blob.make_public()
-    url = f"{blob.public_url}?t={int(time.time())}"
-    db.collection("users").document(uid).update({"photoURL": url})
-    return {"ok": True, "photoURL": url}
+    # 1. Vérifier le type
+    if not file.content_type.startswith("image/"): 
+        raise HTTPException(400, "Le fichier doit être une image")
+
+    try:
+        # 2. Lire et traiter l'image
+        contents = await file.read()
+        img = Image.open(io.BytesIO(contents))
+        
+        # --- CORRECTION CRITIQUE : Gérer la transparence (PNG -> JPEG) ---
+        # Si l'image est en RGBA (transparence), on la passe en RGB fond blanc
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        # -----------------------------------------------------------------
+
+        img.thumbnail((512, 512))
+        
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        
+        # 3. Upload vers Firebase Storage
+        blob = bucket.blob(f"avatars/{uid}.jpg")
+        blob.upload_from_string(buf.getvalue(), content_type="image/jpeg")
+        
+        # 4. Tenter de rendre public (Peut échouer selon les réglages du Bucket)
+        try:
+            blob.make_public()
+        except Exception as e:
+            print(f"⚠️ Warning make_public: {e}")
+            # On continue même si ça échoue, pour ne pas planter le serveur
+        
+        # 5. URL avec timestamp pour éviter le cache navigateur
+        url = f"{blob.public_url}?t={int(time.time())}"
+        
+        # 6. Mise à jour Firestore
+        db.collection("users").document(uid).update({"photoURL": url})
+        
+        return {"ok": True, "photoURL": url}
+
+    except Exception as e:
+        # C'est ici qu'on attrape l'erreur pour comprendre ce qui se passe
+        print(f"❌ ERREUR UPLOAD: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erreur serveur: {str(e)}")
+
 
 
 # ─── ENDPOINTS CONTRIBUTION (User) ───
