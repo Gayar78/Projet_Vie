@@ -46,6 +46,10 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth.js";
 
+    // --- AJOUT IMPORTANT : L'URL DE TON BACKEND ---
+    const API_URL = "https://draftprime-api.onrender.com"; 
+    // ----------------------------------------------
+
     const firebaseConfig = {
       apiKey: "AIzaSyDOqn7DJSB-FtTfSj1-6RE8vzznyxNhjNw",
       authDomain: "projetvie-212e4.firebaseapp.com",
@@ -82,7 +86,19 @@
 
     async function loadData() {
         listDiv.innerHTML = '<p class="text-center text-gray-500">Chargement...</p>';
-        const res = await fetch('/api/admin/pending_contributions', { headers: { 'Authorization': currentToken } });
+        
+        // --- CORRECTION URL ICI ---
+        // On enlève '/api' et on met API_URL à la place
+        const res = await fetch(`${API_URL}/admin/pending_contributions`, { 
+            headers: { 'Authorization': currentToken } 
+        });
+        // --------------------------
+
+        if (!res.ok) {
+            listDiv.innerHTML = `<p class="text-red-500 text-center">Erreur API: ${res.status}</p>`;
+            return;
+        }
+
         const data = await res.json();
         
         if(data.length === 0) {
@@ -92,6 +108,7 @@
 
         listDiv.innerHTML = data.map(c => `
             <div class="glass p-6 rounded-2xl relative group" id="card-${c.id}">
+                <!-- (Le reste de ton HTML d'affichage ne change pas) -->
                 <div class="flex justify-between items-start mb-4">
                     <div>
                         <p class="text-lg font-bold text-white">${c.author_name}</p>
@@ -113,7 +130,6 @@
                     <button onclick="showReject('${c.id}')" class="flex-1 py-3 rounded-lg bg-red-600 hover:bg-red-500 font-bold transition">REFUSER</button>
                 </div>
 
-                <!-- Formulaire de rejet caché -->
                 <div id="reject-form-${c.id}" class="hidden mt-4 pt-4 border-t border-white/10">
                     <label class="block text-xs text-gray-400 mb-2">Raison du refus :</label>
                     <select id="reason-select-${c.id}" class="w-full bg-black/50 border border-white/20 rounded p-2 text-sm mb-2 text-white">
@@ -132,11 +148,12 @@
         `).join('');
     }
 
-    // Fonctions globales pour les boutons onclick
+    // --- CORRECTION URL AUSSI POUR LES ACTIONS ---
     window.approve = async (id) => {
         if(!confirm("Valider cette perf ?")) return;
         document.getElementById(`card-${id}`).style.opacity = "0.5";
-        await fetch(`/api/admin/approve_contribution/${id}`, { 
+        
+        await fetch(`${API_URL}/admin/approve_contribution/${id}`, { // <--- ICI
             method: 'POST', 
             headers: { 'Authorization': currentToken } 
         });
@@ -159,7 +176,8 @@
         fd.append('reason', reason);
 
         document.getElementById(`card-${id}`).style.opacity = "0.5";
-        await fetch(`/api/admin/reject_contribution/${id}`, { 
+        
+        await fetch(`${API_URL}/admin/reject_contribution/${id}`, { // <--- ET ICI
             method: 'POST', 
             headers: { 'Authorization': currentToken },
             body: fd
