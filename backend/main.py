@@ -10,6 +10,12 @@ import requests
 from pathlib import Path
 import os
 
+FIREBASE_KEY = os.getenv("FIREBASE_KEY")
+
+# Sécurité : Vérifie si la clé est bien chargée
+if not FIREBASE_KEY:
+    print("ATTENTION: FIREBASE_KEY est vide ou introuvable !")
+
 # ─── INITIALISATION FIREBASE ROBUSTE ─────────────────────────────────────
 try:
     # 1. Définir les chemins possibles pour la clé
@@ -235,6 +241,12 @@ async def register(u: UserRegisterIn):
 
 @app.post("/login")
 async def login(u: UserLoginIn):
+
+    FIREBASE_KEY = os.getenv("FIREBASE_KEY")
+
+    if not FIREBASE_KEY:
+        raise HTTPException(status_code=500, detail="La clé API Firebase est manquante sur le serveur.")
+    
     # Utilisation de requests.post (Librairie Python) et non Request.post (FastAPI)
     url = ("https://identitytoolkit.googleapis.com/v1/"
            f"accounts:signInWithPassword?key={FIREBASE_KEY}")
