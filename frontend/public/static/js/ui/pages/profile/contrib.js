@@ -1,5 +1,8 @@
 /* frontend/static/js/ui/pages/profile/contrib.js */
-import { getIdToken } from '../../../auth.js';
+
+// --- CONFIGURATION DU BACKEND ---
+const API_URL = "https://draftprime-api.onrender.com";
+// --------------------------------
 
 // CONFIGURATION DES INPUTS REQUIS PAR EXERCICE
 const PERFORMANCE_BAREME = {
@@ -23,7 +26,7 @@ const PERFORMANCE_BAREME = {
     // Cardio
     "run": { "inputs": ["distance", "time"] },
     "bike": { "inputs": ["distance", "time"] },
-    "rope": { "inputs": ["reps", "time"] }, // Rope demande le nombre de sauts ET le temps pour calculer la cadence
+    "rope": { "inputs": ["reps", "time"] },
 
     "default": { "inputs": ["message"] }
 };
@@ -151,8 +154,16 @@ export function mount () {
     });
 
     try {
-      status.textContent = 'Upload en cours...'; status.className = 'text-yellow-400 text-center text-sm mt-2 animate-pulse';
-      const res = await fetch('/api/contribution', { method: 'POST', headers: { authorization: localStorage.getItem('token')||'' }, body: fd });
+      status.textContent = 'Upload en cours... (Cela peut prendre du temps)'; status.className = 'text-yellow-400 text-center text-sm mt-2 animate-pulse';
+      
+      // --- CORRECTION : FETCH VERS RENDER DIRECTEMENT ---
+      const res = await fetch(`${API_URL}/contribution`, { 
+        method: 'POST', 
+        headers: { authorization: localStorage.getItem('token')||'' }, 
+        body: fd 
+      });
+      // --------------------------------------------------
+
       if (!res.ok) throw new Error(await res.text());
       status.textContent = '✅ Vidéo envoyée avec succès !'; status.className = 'text-green-400 text-center text-sm mt-2';
       setTimeout(() => { history.pushState(null, '', '/profile/dashboard'); dispatchEvent(new PopStateEvent('popstate')); }, 1500);
