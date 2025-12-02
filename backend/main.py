@@ -10,12 +10,6 @@ import requests
 from pathlib import Path
 import os
 
-FIREBASE_KEY = os.getenv("FIREBASE_KEY")
-
-# Sécurité : Vérifie si la clé est bien chargée
-if not FIREBASE_KEY:
-    print("ATTENTION: FIREBASE_KEY est vide ou introuvable !")
-
 # ─── INITIALISATION FIREBASE ROBUSTE ─────────────────────────────────────
 try:
     # 1. Définir les chemins possibles pour la clé
