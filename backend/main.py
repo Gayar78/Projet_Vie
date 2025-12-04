@@ -219,19 +219,52 @@ async def get_optional_uid(request: Request) -> str | None:
 @app.post("/register")
 async def register(u: UserRegisterIn):
     try:
+        # 1. Création de l'utilisateur dans l'Auth Firebase
         user = auth.create_user(email=u.email, password=u.password)
+        
+        # 2. Création du profil public dans Firestore "users"
         db.collection("users").document(user.uid).set({
-            "email": u.email, "displayName": "", "displayName_lowercase": "",
-            "photoURL": "", "isPublic": False, "gender": u.gender.value
+            "email": u.email, 
+            "displayName": "", 
+            "displayName_lowercase": "",
+            "photoURL": "", 
+            "isPublic": False, 
+            "gender": u.gender.value
         })
+        
         batch = db.batch()
+        
+        # 3. Initialisation des Scores (Muscu, Street, Cardio)
         for cat in CATEGORIES:
-            if cat == "general": continue
-            batch.set(db.collection("users").document(user.uid).collection("scores").document(cat), 
-                     {m: 0 for m in CATEGORIES[cat]} | {"total": 0, "gender": u.gender.value})
+            if cat == "general": continue # On traite le général juste après
+            
+            # On initialise tous les exercices de la catégorie à 0
+            initial_data = {m: 0 for m in CATEGORIES[cat]}
+            
+            # On ajoute les totaux et surtout LA CATEGORIE (C'est ça qui corrige le bug)
+            initial_data["total"] = 0
+            initial_data["gender"] = u.gender.value
+            initial_data["category"] = cat # <--- L'AJOUT CRUCIAL POUR L'ÉCRITURE
+            
+            # On prépare l'écriture
+            doc_ref = db.collection("users").document(user.uid).collection("scores").document(cat)
+            batch.set(doc_ref, initial_data)
+        
+        # 4. Initialisation du Score Général (Pour qu'il apparaisse dans le leaderboard global)
+        gen_ref = db.collection("users").document(user.uid).collection("scores").document("general")
+        batch.set(gen_ref, {
+            "general": 0,
+            "gender": u.gender.value,
+            "category": "general" # <--- INDISPENSABLE POUR LE FILTRE
+        })
+
+        # 5. Envoi de toutes les données d'un coup
         batch.commit()
+        
         return {"uid": user.uid}
-    except Exception as e: raise HTTPException(400, f"Error: {e}")
+        
+    except Exception as e: 
+        raise HTTPException(400, f"Error: {e}")
 
 @app.post("/login")
 async def login(u: UserLoginIn):
