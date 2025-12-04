@@ -542,11 +542,10 @@ async def leaderboard(gender: str="all", cat: str="general", metric: str="genera
 
     # 2. REQUÊTE
     if group_id:
-        # Stratégie Groupe : On récupère les scores spécifiques des membres (Efficace pour < 50 membres)
-        # On ne peut pas faire de tri côté DB facilement ici, on le fera en Python
+        # Stratégie Groupe : On récupère les scores spécifiques des membres par leur ID
         docs = []
         for uid in target_uids:
-            # On cherche le doc de score spécifique
+            # On cherche le doc de score spécifique (ici pas de risque de doublon car on cible l'ID du doc "cat")
             score_ref = db.collection("users").document(uid).collection("scores").document(cat)
             s_doc = score_ref.get()
             if s_doc.exists:
@@ -556,8 +555,14 @@ async def leaderboard(gender: str="all", cat: str="general", metric: str="genera
                     d["_uid"] = uid # On attache l'ID pour la suite
                     docs.append(d)
     else:
-        # Stratégie Globale (Existante)
+        # Stratégie Globale (C'est ici qu'on corrige les doublons)
         coll = db.collection_group("scores")
+        
+        # --- CORRECTIF : FILTRE OBLIGATOIRE SUR LA CATEGORIE ---
+        # Cela empêche de récupérer les documents "street" quand on demande "muscu"
+        coll = coll.where(filter=firestore.FieldFilter("category", "==", cat))
+        # -------------------------------------------------------
+
         if gender in ["M", "F"]:
             coll = coll.where(filter=firestore.FieldFilter("gender", "==", gender))
         try:
@@ -566,16 +571,18 @@ async def leaderboard(gender: str="all", cat: str="general", metric: str="genera
             docs = []
             for d in stream:
                 dic = d.to_dict()
+                # L'ID du user parent se trouve deux niveaux au-dessus (users/{uid}/scores/{doc})
                 dic["_uid"] = d.reference.parent.parent.id
                 docs.append(dic)
         except Exception as e:
-            print(f"Index Error: {e}")
+            # IMPORTANT : Si tu vois cette erreur dans les logs, clique sur le lien fourni par Firebase
+            print(f"Index Error (Clique sur le lien dans les logs si présent): {e}")
             return {"list": []}
 
     # 3. FORMATAGE
     out = []
     
-    # Si mode groupe, on doit trier manuellement car on a fetch par ID
+    # Si mode groupe, on doit trier manuellement car on a fetch par ID sans tri DB
     if group_id:
         docs.sort(key=lambda x: x.get(metric, 0), reverse=True)
 
@@ -585,8 +592,7 @@ async def leaderboard(gender: str="all", cat: str="general", metric: str="genera
         
         uid = d["_uid"]
         
-        # Optimisation: Pour le leaderboard global, on a déjà les infos si on les stocke dans le score
-        # Sinon on fetch le user (Attention aux lectures en masse)
+        # On récupère le profil utilisateur pour l'affichage (Nom, Photo)
         u_data = db.collection("users").document(uid).get().to_dict() or {}
         
         out.append({
